@@ -23,6 +23,7 @@ A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
 - 双窗格分割线可拖动（双击复位）；3 个及以上窗格等宽排列。点击窗格切换焦点（蓝色描边提示）。
 - `Join Terminals` 把组内窗格拆回独立标签；关闭组会关闭组内全部终端。
 - 分屏组、窗格顺序与分割比例随会话状态一起持久化。
+- 右键终端列表空白处或空舞台：`New Terminal` 新建会话、`Move Tabs Left/Right` 切换标签栏左右位置、`Hide/Show Tabs` 隐藏标签栏以最大化终端空间；布局偏好持久化。
 - 面板高度变化时通知对话视图重新布局，避免虚拟列表裁切滞后。
 - 使用 xterm.js、Unicode 11 宽度规则和 Nerd Font 回退字体。
 

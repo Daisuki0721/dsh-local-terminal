@@ -8,6 +8,8 @@ export interface PersistedTerminalState {
     open: boolean;
     height?: string;
     railWidth?: string;
+    railSide?: 'left' | 'right';
+    railVisible?: boolean;
     /** Sidebar units; each unit holds 1..6 pane member ids sharing one name. */
     groups?: number[][];
     splitRatio?: string;

@@ -11,6 +11,8 @@ export interface PersistedTerminalState {
   open: boolean
   height?: string
   railWidth?: string
+  railSide?: 'left' | 'right'
+  railVisible?: boolean
   /** Sidebar units; each unit holds 1..6 pane member ids sharing one name. */
   groups?: number[][]
   splitRatio?: string
@@ -57,6 +59,8 @@ export function loadTerminalState(): PersistedTerminalState {
       open: parsed.open === true,
       height: typeof parsed.height === 'string' ? parsed.height : undefined,
       railWidth: typeof parsed.railWidth === 'string' ? parsed.railWidth : undefined,
+      railSide: parsed.railSide === 'left' ? 'left' : 'right',
+      railVisible: parsed.railVisible !== false,
       groups: parseGroups(),
       splitRatio: typeof parsed.splitRatio === 'string' ? parsed.splitRatio : undefined,
       activeId: typeof parsed.activeId === 'number' ? parsed.activeId : null,

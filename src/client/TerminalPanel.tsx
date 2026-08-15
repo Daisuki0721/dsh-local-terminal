@@ -39,7 +39,7 @@ interface TerminalActions {
 
 interface TerminalContextMenu {
   id: number
-  kind: 'session' | 'terminal'
+  kind: 'session' | 'terminal' | 'panel'
   left: number
   top: number
   canCopy: boolean
@@ -304,6 +304,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFound, setSearchFound] = useState(true)
   const [renameDraft, setRenameDraft] = useState('')
+  const [railSide, setRailSide] = useState<'left' | 'right'>(() => restored.railSide ?? 'right')
+  const [railVisible, setRailVisible] = useState<boolean>(() => restored.railVisible ?? true)
   const usedIdsRef = useRef<Set<number> | null>(null)
   const actionsRef = useRef(new Map<number, TerminalActions>())
   const panelRef = useRef<HTMLElement | null>(null)
@@ -317,8 +319,12 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const renameCancelledRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const groupsRef = useRef<number[][]>(groups)
+  const railSideRef = useRef<'left' | 'right'>(railSide)
+  const railVisibleRef = useRef<boolean>(railVisible)
 
   useEffect(() => { groupsRef.current = groups }, [groups])
+  useEffect(() => { railSideRef.current = railSide }, [railSide])
+  useEffect(() => { railVisibleRef.current = railVisible }, [railVisible])
 
   useEffect(() => { ensureXtermCss() }, [])
 
@@ -357,6 +363,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       open,
       height: readVariable('--dsh-terminal-height', mount),
       railWidth: readVariable('--dsh-terminal-rail-width', mount),
+      railSide: railSideRef.current,
+      railVisible: railVisibleRef.current,
       groups: groupsRef.current,
       splitRatio: readVariable('--dsh-terminal-split-ratio', stageRef.current),
       activeId: active,
@@ -389,7 +397,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   useEffect(() => {
     persistState(snapshot.open, activeId, sessions)
-  }, [activeId, groups, persistState, sessions, snapshot.open])
+  }, [activeId, groups, persistState, railSide, railVisible, sessions, snapshot.open])
 
   const onStatus = useCallback((id: number, status: string) => {
     setStatuses(previous => previous[id] === status ? previous : { ...previous, [id]: status })
@@ -545,6 +553,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const openContextMenu = (event: ReactMouseEvent, unitKey: number): void => {
     event.preventDefault()
+    event.stopPropagation()
     const group = groups.find(candidate => candidate[0] === unitKey)
     if (group !== undefined) focusUnit(group)
     // Keep the menu fully inside the viewport; stick to the page edge when it
@@ -558,6 +567,22 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     setContextMenu({
       id: unitKey,
       kind: 'session',
+      canCopy: false,
+      left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
+      top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
+    })
+  }
+
+  const openPanelMenu = (event: ReactMouseEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    // Three 26px items + padding/border.
+    const menuWidth = 140
+    const menuHeight = 88
+    const margin = 6
+    setContextMenu({
+      id: -1,
+      kind: 'panel',
       canCopy: false,
       left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
       top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
@@ -688,7 +713,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     mount.dataset.resizing = 'true'
     document.body.style.userSelect = 'none'
     const move = (moveEvent: PointerEvent): void => {
-      setRailWidth(startWidth + startX - moveEvent.clientX)
+      setRailWidth(railSideRef.current === 'left'
+        ? startWidth + moveEvent.clientX - startX
+        : startWidth + startX - moveEvent.clientX)
     }
     let finished = false
     const finish = (): void => {
@@ -714,7 +741,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     event.preventDefault()
     const rail = railRef.current
     if (rail === null) return
-    const delta = event.key === 'ArrowRight' ? -24 : 24
+    const shrink = railSide === 'right' ? event.key === 'ArrowRight' : event.key === 'ArrowLeft'
+    const delta = shrink ? -24 : 24
     setRailWidth(rail.getBoundingClientRect().width + delta)
     persistState(snapshot.open, activeId, sessions)
   }
@@ -808,6 +836,35 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     return () => { window.removeEventListener('keydown', onKey) }
   }, [activeId, contextMenu, controller, editingId, searchOpen, snapshot.open])
 
+  const railContent = (
+    <>
+      {groups.map(group => {
+        const member = sessions.find(session => session.id === group[0])
+        if (member === undefined) return null
+        const unitKey = member.id
+        const groupActive = group.includes(activeId ?? -1)
+        return (
+          <div
+            key={unitKey}
+            className={css.sessionRow}
+            data-active={groupActive ? 'true' : undefined}
+            data-dragging={dragId === unitKey ? 'true' : undefined}
+            onContextMenu={event => { openContextMenu(event, unitKey) }}
+            onPointerDown={event => { startSessionDrag(event, unitKey) }}
+          >
+            {editingId === unitKey
+              ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${member.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, unitKey) }} onBlur={() => { commitRename(unitKey) }} /></div>
+              : <button type="button" className={css.sessionSelect} onClick={() => { focusUnit(group) }} title={groupActive && activeId !== null ? statuses[activeId] : statuses[member.id]}><TerminalIcon /><span>{member.name}</span>{group.length > 1 && <span className={css.unitCount}>{group.length}</span>}</button>}
+            <button type="button" className={css.sessionClose} aria-label={`Close ${member.name}`} title={`Close ${member.name}`} onClick={() => { closeUnit(group) }}>×</button>
+          </div>
+        )
+      })}
+      {dragIndicatorTop !== null && (
+        <div className={css.dragIndicator} style={{ top: dragIndicatorTop }} />
+      )}
+    </>
+  )
+
   return (
     <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
       <div
@@ -858,7 +915,12 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           <button type="button" className={css.searchNav} aria-label="Close search" title="Close search" onClick={closeSearch}>×</button>
         </div>
       )}
-      <div className={css.panelBody}>
+      <div className={css.panelBody} data-rail={railVisible ? railSide : 'hidden'}>
+        {railVisible && railSide === 'left' && (
+          <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }} onContextMenu={openPanelMenu}>
+            {railContent}
+          </aside>
+        )}
         <div
           className={css.railDivider}
           role="separator"
@@ -872,7 +934,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             persistState(snapshot.open, activeId, sessions)
           }}
         />
-        <div ref={stageRef} className={css.terminalStage}>
+        <div ref={stageRef} className={css.terminalStage} onContextMenu={openPanelMenu}>
           {activeGroup !== undefined && activeGroupMembers.length > 1 && (
             <div
               className={css.splitGrid}
@@ -932,47 +994,37 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             )
           })}
         </div>
-        <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }}>
-          {groups.map(group => {
-            const member = sessions.find(session => session.id === group[0])
-            if (member === undefined) return null
-            const unitKey = member.id
-            const groupActive = group.includes(activeId ?? -1)
-            return (
-              <div
-                key={unitKey}
-                className={css.sessionRow}
-                data-active={groupActive ? 'true' : undefined}
-                data-dragging={dragId === unitKey ? 'true' : undefined}
-                onContextMenu={event => { openContextMenu(event, unitKey) }}
-                onPointerDown={event => { startSessionDrag(event, unitKey) }}
-              >
-                {editingId === unitKey
-                  ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${member.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, unitKey) }} onBlur={() => { commitRename(unitKey) }} /></div>
-                  : <button type="button" className={css.sessionSelect} onClick={() => { focusUnit(group) }} title={groupActive && activeId !== null ? statuses[activeId] : statuses[member.id]}><TerminalIcon /><span>{member.name}</span>{group.length > 1 && <span className={css.unitCount}>{group.length}</span>}</button>}
-                <button type="button" className={css.sessionClose} aria-label={`Close ${member.name}`} title={`Close ${member.name}`} onClick={() => { closeUnit(group) }}>×</button>
-              </div>
-            )
-          })}
-          {dragIndicatorTop !== null && (
-            <div className={css.dragIndicator} style={{ top: dragIndicatorTop }} />
-          )}
-          {contextMenu !== null && createPortal(
-            <div ref={contextMenuRef} className={css.contextMenu} role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
-              {contextMenu.kind === 'session'
+        {railVisible && railSide === 'right' && (
+          <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }} onContextMenu={openPanelMenu}>
+            {railContent}
+          </aside>
+        )}
+        {contextMenu !== null && createPortal(
+          <div ref={contextMenuRef} className={css.contextMenu} role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
+            {contextMenu.kind === 'session'
+              ? <>
+                <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
+                <button type="button" role="menuitem" onClick={() => {
+                  const group = groups.find(candidate => candidate[0] === contextMenu.id)
+                  if (group !== undefined) closeUnit(group)
+                  setContextMenu(null)
+                }}>Close</button>
+                {menuGroup !== undefined && menuGroup.length < 6 && (
+                  <button type="button" role="menuitem" onClick={() => { splitUnit(menuGroup); setContextMenu(null) }}>Split Terminal</button>
+                )}
+                {menuGroup !== undefined && menuGroup.length > 1 && (
+                  <button type="button" role="menuitem" onClick={() => { joinUnit(menuGroup); setContextMenu(null) }}>Join Terminals</button>
+                )}
+              </>
+              : contextMenu.kind === 'panel'
                 ? <>
-                  <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
-                  <button type="button" role="menuitem" onClick={() => {
-                    const group = groups.find(candidate => candidate[0] === contextMenu.id)
-                    if (group !== undefined) closeUnit(group)
-                    setContextMenu(null)
-                  }}>Close</button>
-                  {menuGroup !== undefined && menuGroup.length < 6 && (
-                    <button type="button" role="menuitem" onClick={() => { splitUnit(menuGroup); setContextMenu(null) }}>Split Terminal</button>
-                  )}
-                  {menuGroup !== undefined && menuGroup.length > 1 && (
-                    <button type="button" role="menuitem" onClick={() => { joinUnit(menuGroup); setContextMenu(null) }}>Join Terminals</button>
-                  )}
+                  <button type="button" role="menuitem" onClick={() => { addSession(snapshot.cwd); setContextMenu(null) }}>New Terminal</button>
+                  <button type="button" role="menuitem" onClick={() => { setRailSide(side => side === 'right' ? 'left' : 'right'); setContextMenu(null) }}>
+                    {railSide === 'right' ? 'Move Tabs Left' : 'Move Tabs Right'}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { setRailVisible(visible => !visible); setContextMenu(null) }}>
+                    {railVisible ? 'Hide Tabs' : 'Show Tabs'}
+                  </button>
                 </>
                 : <>
                   <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
@@ -982,10 +1034,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                   <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.clear(); setContextMenu(null) }}>Clear</button>
                   <button type="button" role="menuitem" onClick={() => { restartActive(); setContextMenu(null) }}>Restart</button>
                 </>}
-            </div>,
-            document.body,
-          )}
-        </aside>
+          </div>,
+          document.body,
+        )}
       </div>
     </section>
   )
