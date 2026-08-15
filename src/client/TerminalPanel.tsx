@@ -599,7 +599,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const openPickerMenu = (event: ReactMouseEvent): void => {
     event.preventDefault()
     event.stopPropagation()
-    const menuWidth = 180
+    const menuWidth = 220
     const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
     const menuHeight = Math.min(itemCount * 26 + 10, 264)
     const margin = 6
@@ -918,16 +918,18 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         </div>
         <div className={css.panelActions}>
           <button type="button" className={css.iconButton} aria-label="Create terminal" title="Create terminal" onClick={() => { addSession(snapshot.cwd) }}>+</button>
-          <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) openSearch(activeId) }}>Find</button>
-          <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) actionsRef.current.get(activeId)?.clear() }}>Clear</button>
-          <button type="button" className={css.headerButton} onClick={restartActive}>Restart</button>
           {sessions.length > 0 && (
             <button type="button" className={css.pickerEntry} title="Switch terminal" onClick={openPickerMenu}>
               <TerminalIcon />
               <span>{activeUnitLabel}</span>
-              <span className={css.pickerCaret} aria-hidden="true">▾</span>
+              <span className={css.pickerCaret} aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m4 6 4 4 4-4" /></svg>
+              </span>
             </button>
           )}
+          <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) openSearch(activeId) }}>Find</button>
+          <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) actionsRef.current.get(activeId)?.clear() }}>Clear</button>
+          <button type="button" className={css.headerButton} onClick={restartActive}>Restart</button>
           <button type="button" className={css.closeButton} aria-label="Hide terminal panel" title="Hide terminal panel" onClick={() => { controller.hide() }}>×</button>
         </div>
       </header>
@@ -1037,7 +1039,13 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           </aside>
         )}
         {contextMenu !== null && createPortal(
-          <div ref={contextMenuRef} className={css.contextMenu} role="menu" data-tall={contextMenu.kind === 'picker' ? 'true' : undefined} style={{ left: contextMenu.left, top: contextMenu.top }}>
+          <div
+            ref={contextMenuRef}
+            className={css.contextMenu}
+            role="menu"
+            data-tall={contextMenu.kind === 'picker' ? 'true' : undefined}
+            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 220 } : {}) }}
+          >
             {contextMenu.kind === 'session'
               ? <>
                 <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
