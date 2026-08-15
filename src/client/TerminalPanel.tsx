@@ -602,7 +602,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     // Anchor to the button's left edge like a native dropdown; open below,
     // flipping above when the viewport bottom would clip the menu.
     const rect = event.currentTarget.getBoundingClientRect()
-    const menuWidth = 260
+    const menuWidth = 500
     const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
     const menuHeight = Math.min(itemCount * 26 + 10, 264)
     const margin = 6
@@ -1052,7 +1052,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             className={css.contextMenu}
             role="menu"
             data-tall={contextMenu.kind === 'picker' ? 'true' : undefined}
-            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 260 } : {}) }}
+            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 500 } : {}) }}
           >
             {contextMenu.kind === 'session'
               ? <>
