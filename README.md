@@ -17,6 +17,8 @@ A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
 - 面板开关、尺寸、会话列表（命名/顺序）与激活标签持久化到 localStorage，刷新页面自动恢复。
 - WebSocket 断线自动重连（指数退避）；服务端 PTY 断线保留 60 秒并重放断线期间的输出。
 - `Cmd+V` / `Ctrl+Shift+V` 粘贴；`Ctrl+Shift+F` 或 `Find` 按钮在终端内搜索。
+- `Cmd+A` 全选、`Cmd+K` 清屏（均提供 `Ctrl+Shift+` 别名，不劫持 shell 的 `Ctrl+A`/`Ctrl+K`）。
+- 终端区域右键菜单：Copy / Copy as HTML / Paste / Select All / Clear / Restart，视口内自动避让。
 - 面板高度变化时通知对话视图重新布局，避免虚拟列表裁切滞后。
 - 使用 xterm.js、Unicode 11 宽度规则和 Nerd Font 回退字体。
 

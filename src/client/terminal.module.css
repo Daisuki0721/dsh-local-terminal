@@ -408,6 +408,16 @@
   outline: none;
 }
 
+.contextMenu button:disabled {
+  color: #7d8aa8;
+  cursor: default;
+}
+
+.contextMenu button:disabled:hover,
+.contextMenu button:disabled:focus-visible {
+  background: transparent;
+}
+
 @media (max-width: 720px) {
   .mount[data-open='true'] { height: min(42vh, 360px); }
   .panelBody { grid-template-columns: minmax(0, 1fr) var(--dsh-terminal-rail-width, 116px); }

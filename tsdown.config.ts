@@ -22,6 +22,7 @@ const CLIENT_BUNDLED = [
   '@xterm/addon-fit',
   '@xterm/addon-unicode11',
   '@xterm/addon-search',
+  '@xterm/addon-serialize',
 ] as const
 
 function cssModulesPlugin() {

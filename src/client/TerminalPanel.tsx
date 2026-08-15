@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { SearchAddon } from '@xterm/addon-search'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import { openTerminal, type LocalTerminalConnection } from './api.ts'
 import type { TerminalController } from './controller.ts'
 import { loadTerminalState, saveTerminalState, type PersistedSession } from './storage.ts'
@@ -29,12 +30,19 @@ interface TerminalActions {
   focus(): void
   findNext(query: string): boolean
   findPrevious(query: string): boolean
+  copy(): void
+  copyAsHtml(): void
+  paste(): void
+  selectAll(): void
+  hasSelection(): boolean
 }
 
 interface TerminalContextMenu {
   id: number
+  kind: 'session' | 'terminal'
   left: number
   top: number
+  canCopy: boolean
 }
 
 let xtermCssReady = false
@@ -53,12 +61,14 @@ function TerminalSession({
   onStatus,
   onActions,
   onFindRequest,
+  onTerminalMenu,
 }: {
   session: TerminalSessionModel
   active: boolean
   onStatus: (id: number, status: string) => void
   onActions: (id: number, actions: TerminalActions | null) => void
   onFindRequest: (id: number) => void
+  onTerminalMenu: (id: number, left: number, top: number, canCopy: boolean) => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -103,9 +113,11 @@ function TerminalSession({
         const fit = new FitAddon()
         const unicode11 = new Unicode11Addon()
         const search = new SearchAddon()
+        const serialize = new SerializeAddon()
         term.loadAddon(fit)
         term.loadAddon(unicode11)
         term.loadAddon(search)
+        term.loadAddon(serialize)
         term.unicode.activeVersion = '11'
         term.open(host)
         fit.fit()
@@ -113,18 +125,39 @@ function TerminalSession({
         termRef.current = term
         fitRef.current = fit
         connectionRef.current = connection
-        onActions(session.id, {
-          clear: () => { term.clear() },
-          focus: () => { term.focus() },
-          findNext: query => query === '' ? true : search.findNext(query),
-          findPrevious: query => query === '' ? true : search.findPrevious(query),
-        })
-
         const pasteFromClipboard = (): void => {
           void navigator.clipboard.readText()
             .then(text => { if (text !== '') term.paste(text) })
             .catch(() => { /* clipboard unavailable */ })
         }
+        onActions(session.id, {
+          clear: () => { term.clear() },
+          focus: () => { term.focus() },
+          findNext: query => query === '' ? true : search.findNext(query),
+          findPrevious: query => query === '' ? true : search.findPrevious(query),
+          copy: () => {
+            const selection = term.getSelection()
+            if (selection !== '') void navigator.clipboard.writeText(selection).catch(() => { /* clipboard unavailable */ })
+          },
+          copyAsHtml: () => {
+            const html = serialize.serializeAsHTML()
+            const plain = serialize.serialize()
+            if (typeof ClipboardItem !== 'undefined' && navigator.clipboard !== undefined) {
+              void navigator.clipboard.write([
+                new ClipboardItem({
+                  'text/html': new Blob([html], { type: 'text/html' }),
+                  'text/plain': new Blob([plain], { type: 'text/plain' }),
+                }),
+              ]).catch(() => { void navigator.clipboard.writeText(plain) })
+            } else {
+              void navigator.clipboard?.writeText(plain)
+            }
+          },
+          paste: pasteFromClipboard,
+          selectAll: () => { term.selectAll() },
+          hasSelection: () => term.hasSelection(),
+        })
+
         term.attachCustomKeyEventHandler(event => {
           if (event.type !== 'keydown') return true
           const primary = event.metaKey || event.ctrlKey
@@ -135,6 +168,14 @@ function TerminalSession({
           }
           if (event.code === 'KeyF' && event.shiftKey) {
             onFindRequest(session.id)
+            return false
+          }
+          if (event.code === 'KeyA' && (event.metaKey || event.shiftKey)) {
+            term.selectAll()
+            return false
+          }
+          if (event.code === 'KeyK' && (event.metaKey || event.shiftKey)) {
+            term.clear()
             return false
           }
           return true
@@ -207,7 +248,15 @@ function TerminalSession({
 
   return (
     <div className={css.terminalView} data-active={active ? 'true' : undefined} aria-hidden={!active}>
-      <div className={css.terminalHost} ref={hostRef} />
+      <div
+        className={css.terminalHost}
+        ref={hostRef}
+        onContextMenu={event => {
+          event.preventDefault()
+          event.stopPropagation()
+          onTerminalMenu(session.id, event.clientX, event.clientY, termRef.current?.hasSelection() ?? false)
+        }}
+      />
     </div>
   )
 }
@@ -399,16 +448,33 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     event.preventDefault()
     setActiveId(id)
     // Keep the menu fully inside the viewport; stick to the page edge when it
-    // would overflow. menuHeight must match the two 26px items + padding/border.
+    // would overflow. menuHeight must match two 26px items + padding/border.
     const menuWidth = 140
     const menuHeight = 64
     const margin = 6
     setContextMenu({
       id,
+      kind: 'session',
+      canCopy: false,
       left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
       top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
     })
   }
+
+  const openTerminalMenu = useCallback((id: number, left: number, top: number, canCopy: boolean): void => {
+    setActiveId(id)
+    // menuHeight must match six 26px items + padding/border.
+    const menuWidth = 140
+    const menuHeight = 166
+    const margin = 6
+    setContextMenu({
+      id,
+      kind: 'terminal',
+      canCopy,
+      left: Math.max(margin, Math.min(left, window.innerWidth - menuWidth - margin)),
+      top: Math.max(margin, Math.min(top, window.innerHeight - menuHeight - margin)),
+    })
+  }, [])
 
   const beginRename = (id: number): void => {
     const session = sessions.find(candidate => candidate.id === id)
@@ -696,6 +762,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
               onStatus={onStatus}
               onActions={onActions}
               onFindRequest={openSearch}
+              onTerminalMenu={openTerminalMenu}
             />
           ))}
         </div>
@@ -720,8 +787,19 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           )}
           {contextMenu !== null && createPortal(
             <div ref={contextMenuRef} className={css.contextMenu} role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
-              <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
-              <button type="button" role="menuitem" onClick={() => { closeSession(contextMenu.id); setContextMenu(null) }}>Close</button>
+              {contextMenu.kind === 'session'
+                ? <>
+                  <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
+                  <button type="button" role="menuitem" onClick={() => { closeSession(contextMenu.id); setContextMenu(null) }}>Close</button>
+                </>
+                : <>
+                  <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
+                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.copyAsHtml(); setContextMenu(null) }}>Copy as HTML</button>
+                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.paste(); setContextMenu(null) }}>Paste</button>
+                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.selectAll(); setContextMenu(null) }}>Select All</button>
+                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.clear(); setContextMenu(null) }}>Clear</button>
+                  <button type="button" role="menuitem" onClick={() => { restartActive(); setContextMenu(null) }}>Restart</button>
+                </>}
             </div>,
             document.body,
           )}
