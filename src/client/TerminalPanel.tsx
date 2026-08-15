@@ -602,7 +602,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     // Anchor to the button's left edge like a native dropdown; open below,
     // flipping above when the viewport bottom would clip the menu.
     const rect = event.currentTarget.getBoundingClientRect()
-    const menuWidth = 500
+    const menuWidth = 220
     const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
     const menuHeight = Math.min(itemCount * 26 + 10, 264)
     const margin = 6
@@ -929,7 +929,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           {sessions.length > 0 && (
             <button type="button" className={css.pickerEntry} title="Switch terminal" onClick={openPickerMenu}>
               <TerminalIcon />
-              <span>{activeUnitLabel}</span>
+              <span className={css.pickerLabel}>{activeUnitLabel}</span>
               <span className={css.pickerCaret} aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m4 6 4 4 4-4" /></svg>
               </span>
@@ -1052,7 +1052,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             className={css.contextMenu}
             role="menu"
             data-tall={contextMenu.kind === 'picker' ? 'true' : undefined}
-            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 500 } : {}) }}
+            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 220 } : {}) }}
           >
             {contextMenu.kind === 'session'
               ? <>
