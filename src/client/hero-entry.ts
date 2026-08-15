@@ -1,7 +1,16 @@
 import type { TerminalController } from './controller.ts'
 import css from './terminal.module.css'
 
-const PRESET_SLOT = '[data-slot="conversation.hero.agentPreset"]'
+/**
+ * The hero view has no registered slot for a companion button (the preset
+ * slot is `kind: 'single'` and cannot host another entry), so the Terminal
+ * trigger rides the hero's workspace row through stable data attributes:
+ * `[data-phase='hero']` roots the phase and the hero composer's previous
+ * sibling is the workspace row that ends with the agent preset slot.
+ */
+const HERO_PHASE = '[data-phase="hero"]'
+const HERO_COMPOSER = '[data-composer-card]'
+const SELF_HEAL_INTERVAL_MS = 4000
 
 export function mountHeroTerminalEntry(controller: TerminalController): () => void {
   const host = document.createElement('span')
@@ -17,9 +26,18 @@ export function mountHeroTerminalEntry(controller: TerminalController): () => vo
   host.append(button)
 
   const place = (): void => {
-    const slot = document.querySelector<HTMLElement>(PRESET_SLOT)
-    if (slot === null || !slot.isConnected) return
-    if (host.previousElementSibling !== slot) slot.insertAdjacentElement('afterend', host)
+    const phase = document.querySelector<HTMLElement>(HERO_PHASE)
+    if (phase === null || !phase.isConnected) {
+      if (host.isConnected) host.remove()
+      return
+    }
+    const composer = phase.querySelector<HTMLElement>(HERO_COMPOSER)
+    const row = composer?.previousElementSibling
+    if (row instanceof HTMLElement) {
+      if (host.parentElement !== row) row.append(host)
+    } else if (host.isConnected) {
+      host.remove()
+    }
   }
   const observer = new MutationObserver(place)
   observer.observe(document.body, { childList: true, subtree: true })
@@ -29,7 +47,9 @@ export function mountHeroTerminalEntry(controller: TerminalController): () => vo
     button.setAttribute('aria-pressed', String(controller.getSnapshot().open))
   })
   place()
+  const selfHeal = window.setInterval(place, SELF_HEAL_INTERVAL_MS)
   return () => {
+    window.clearInterval(selfHeal)
     observer.disconnect()
     unsubscribe()
     host.remove()

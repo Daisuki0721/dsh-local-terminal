@@ -3,8 +3,15 @@ import type { TerminalController } from './controller.ts'
 import { TerminalPanel } from './TerminalPanel.tsx'
 import css from './terminal.module.css'
 
-const CONVERSATION_SLOT = '[data-slot="conversation"]'
+/**
+ * The app does not expose a bottom-dock slot, so the panel docks below the
+ * conversation column through its stable data attributes. `place()` is
+ * idempotent and re-runs on DOM changes plus a slow self-heal interval, so a
+ * remount of the conversation tree can never strand the panel on <body>.
+ */
+const SCROLL_BODY = '[data-conversation-scroll]'
 const SESSION_SLOT = '[data-slot="conversation.session"]'
+const SELF_HEAL_INTERVAL_MS = 4000
 
 export function mountTerminalPanel(controller: TerminalController): () => void {
   const host = document.createElement('div')
@@ -17,9 +24,10 @@ export function mountTerminalPanel(controller: TerminalController): () => void {
   let reflowFrame: number | undefined
   let settleTimer: number | undefined
   const emitConversationReflow = (): void => {
-    const conversation = document.querySelector<HTMLElement>(CONVERSATION_SLOT)
-    conversation?.firstElementChild?.getBoundingClientRect()
+    const scroll = document.querySelector<HTMLElement>(SCROLL_BODY)
+    scroll?.getBoundingClientRect()
     window.dispatchEvent(new Event('resize'))
+    scroll?.dispatchEvent(new Event('scroll', { bubbles: true }))
     const session = document.querySelector<HTMLElement>(SESSION_SLOT)
     session?.dispatchEvent(new Event('scroll', { bubbles: true }))
     session?.parentElement?.dispatchEvent(new Event('scroll', { bubbles: true }))
@@ -35,11 +43,21 @@ export function mountTerminalPanel(controller: TerminalController): () => void {
     settleTimer = window.setTimeout(emitConversationReflow, 90)
   }
 
+  const findDockAnchor = (): HTMLElement | null => {
+    const scroll = document.querySelector<HTMLElement>(SCROLL_BODY)
+    const column = scroll?.parentElement
+    if (column instanceof HTMLElement) return column
+    // Fallback for layouts without the scroll body: climb from the session slot.
+    const session = document.querySelector<HTMLElement>(SESSION_SLOT)
+    const climbed = session?.parentElement?.parentElement
+    if (climbed instanceof HTMLElement) return climbed
+    return null
+  }
+
   const place = (): void => {
-    const slot = document.querySelector<HTMLElement>(CONVERSATION_SLOT)
-    const layout = slot?.firstElementChild
-    if (!(layout instanceof HTMLElement)) return
-    if (host.parentElement !== layout) layout.append(host)
+    const anchor = findDockAnchor()
+    if (anchor === null) return
+    if (host.parentElement !== anchor) anchor.append(host)
   }
   const observer = new MutationObserver(place)
   observer.observe(document.body, { childList: true, subtree: true })
@@ -52,21 +70,10 @@ export function mountTerminalPanel(controller: TerminalController): () => void {
     place()
   })
   place()
-
-  const onToggleKey = (event: KeyboardEvent): void => {
-    if (event.code !== 'Backquote' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
-    const target = event.target
-    if (target instanceof HTMLElement) {
-      const editable = target.closest('input, textarea, [contenteditable="true"]')
-      if (editable !== null && editable.closest('[data-dsh-local-terminal-root]') === null) return
-    }
-    event.preventDefault()
-    controller.toggle()
-  }
-  window.addEventListener('keydown', onToggleKey)
+  const selfHeal = window.setInterval(place, SELF_HEAL_INTERVAL_MS)
 
   return () => {
-    window.removeEventListener('keydown', onToggleKey)
+    window.clearInterval(selfHeal)
     observer.disconnect()
     resizeObserver.disconnect()
     host.removeEventListener('transitionend', scheduleConversationReflow)
