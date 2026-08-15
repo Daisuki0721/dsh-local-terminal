@@ -596,19 +596,27 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     controller.show()
   }
 
-  const openPickerMenu = (event: ReactMouseEvent): void => {
+  const openPickerMenu = (event: ReactMouseEvent<HTMLButtonElement>): void => {
     event.preventDefault()
     event.stopPropagation()
-    const menuWidth = 220
+    // Anchor to the button's left edge like a native dropdown; open below,
+    // flipping above when the viewport bottom would clip the menu.
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 260
     const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
     const menuHeight = Math.min(itemCount * 26 + 10, 264)
     const margin = 6
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - menuWidth - margin))
+    const below = rect.bottom + 4
+    const top = below + menuHeight <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, rect.top - menuHeight - 4)
     setContextMenu({
       id: -1,
       kind: 'picker',
       canCopy: false,
-      left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
-      top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
+      left,
+      top,
     })
   }
 
@@ -1044,7 +1052,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             className={css.contextMenu}
             role="menu"
             data-tall={contextMenu.kind === 'picker' ? 'true' : undefined}
-            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 220 } : {}) }}
+            style={{ left: contextMenu.left, top: contextMenu.top, ...(contextMenu.kind === 'picker' ? { width: 260 } : {}) }}
           >
             {contextMenu.kind === 'session'
               ? <>
@@ -1078,8 +1086,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                       if (member === undefined) return null
                       const active = group.includes(activeId ?? -1)
                       return (
-                        <button key={member.id} type="button" role="menuitem" onClick={() => { pickUnit(group); setContextMenu(null) }}>
-                          {active ? '✓ ' : ''}{member.name}
+                        <button key={member.id} type="button" role="menuitem" className={css.pickerItem} onClick={() => { pickUnit(group); setContextMenu(null) }}>
+                          <span className={css.pickerItemLabel}>{member.name}</span>
+                          {active && <span className={css.pickerItemCheck}>✓</span>}
                         </button>
                       )
                     })}

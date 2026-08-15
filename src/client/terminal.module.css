@@ -510,6 +510,27 @@
   color: #9fadc5;
 }
 
+.pickerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.pickerItemLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerItemCheck {
+  flex: 0 0 auto;
+  color: #6f9ee8;
+}
+
 .contextMenu button:disabled:hover,
 .contextMenu button:disabled:focus-visible {
   background: transparent;
