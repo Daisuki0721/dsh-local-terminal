@@ -926,7 +926,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         </div>
         <div className={css.panelActions}>
           <button type="button" className={css.iconButton} aria-label="Create terminal" title="Create terminal" onClick={() => { addSession(snapshot.cwd) }}>+</button>
-          {sessions.length > 0 && (
+          {!railVisible && sessions.length > 0 && (
             <button type="button" className={css.pickerEntry} title="Switch terminal" onClick={openPickerMenu}>
               <TerminalIcon />
               <span className={css.pickerLabel}>{activeUnitLabel}</span>
