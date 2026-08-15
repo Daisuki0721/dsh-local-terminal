@@ -470,9 +470,44 @@
   outline: none;
 }
 
+.contextMenu[data-tall='true'] {
+  max-height: 264px;
+  overflow-y: auto;
+}
+
 .contextMenu button:disabled {
   color: #7d8aa8;
   cursor: default;
+}
+
+.statusEntry {
+  position: fixed;
+  z-index: 900;
+  left: 10px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  color: #d7deeb;
+  font: inherit;
+  font-size: 12px;
+  background: #18243f;
+  border: 1px solid rgba(147, 168, 197, 0.3);
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.statusEntry:hover {
+  color: #fff;
+  background: #22335c;
+}
+
+.statusEntry svg {
+  width: 14px;
+  height: 14px;
 }
 
 .contextMenu button:disabled:hover,

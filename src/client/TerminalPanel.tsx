@@ -39,7 +39,7 @@ interface TerminalActions {
 
 interface TerminalContextMenu {
   id: number
-  kind: 'session' | 'terminal' | 'panel'
+  kind: 'session' | 'terminal' | 'panel' | 'picker'
   left: number
   top: number
   canCopy: boolean
@@ -576,13 +576,36 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const openPanelMenu = (event: ReactMouseEvent): void => {
     event.preventDefault()
     event.stopPropagation()
-    // Three 26px items + padding/border.
+    // 26px per item + padding/border; Hide Tabs joins while the rail shows.
     const menuWidth = 140
-    const menuHeight = 88
+    const itemCount = 2 + (railVisible ? 1 : 0)
+    const menuHeight = itemCount * 26 + 10
     const margin = 6
     setContextMenu({
       id: -1,
       kind: 'panel',
+      canCopy: false,
+      left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
+      top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
+    })
+  }
+
+  const pickUnit = (group: number[]): void => {
+    const first = group[0]
+    if (first !== undefined) setActiveId(first)
+    controller.show()
+  }
+
+  const openPickerMenu = (event: ReactMouseEvent): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    const menuWidth = 180
+    const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
+    const menuHeight = Math.min(itemCount * 26 + 10, 264)
+    const margin = 6
+    setContextMenu({
+      id: -1,
+      kind: 'picker',
       canCopy: false,
       left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
       top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
@@ -865,8 +888,15 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     </>
   )
 
+  const activeUnitLabel = (() => {
+    const group = activeId === null ? undefined : groups.find(candidate => candidate.includes(activeId))
+    const member = group === undefined ? undefined : sessions.find(session => session.id === group[0])
+    return member?.name ?? 'Terminal'
+  })()
+
   return (
-    <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
+    <>
+      <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
       <div
         className={css.resizeHandle}
         role="separator"
@@ -1000,7 +1030,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           </aside>
         )}
         {contextMenu !== null && createPortal(
-          <div ref={contextMenuRef} className={css.contextMenu} role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
+          <div ref={contextMenuRef} className={css.contextMenu} role="menu" data-tall={contextMenu.kind === 'picker' ? 'true' : undefined} style={{ left: contextMenu.left, top: contextMenu.top }}>
             {contextMenu.kind === 'session'
               ? <>
                 <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
@@ -1022,22 +1052,44 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                   <button type="button" role="menuitem" onClick={() => { setRailSide(side => side === 'right' ? 'left' : 'right'); setContextMenu(null) }}>
                     {railSide === 'right' ? 'Move Tabs Left' : 'Move Tabs Right'}
                   </button>
-                  <button type="button" role="menuitem" onClick={() => { setRailVisible(visible => !visible); setContextMenu(null) }}>
-                    {railVisible ? 'Hide Tabs' : 'Show Tabs'}
-                  </button>
+                  {railVisible && (
+                    <button type="button" role="menuitem" onClick={() => { setRailVisible(false); setContextMenu(null) }}>Hide Tabs</button>
+                  )}
                 </>
-                : <>
-                  <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
-                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.copyAsHtml(); setContextMenu(null) }}>Copy as HTML</button>
-                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.paste(); setContextMenu(null) }}>Paste</button>
-                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.selectAll(); setContextMenu(null) }}>Select All</button>
-                  <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.clear(); setContextMenu(null) }}>Clear</button>
-                  <button type="button" role="menuitem" onClick={() => { restartActive(); setContextMenu(null) }}>Restart</button>
-                </>}
+                : contextMenu.kind === 'picker'
+                  ? <>
+                    {groups.map(group => {
+                      const member = sessions.find(session => session.id === group[0])
+                      if (member === undefined) return null
+                      const active = group.includes(activeId ?? -1)
+                      return (
+                        <button key={member.id} type="button" role="menuitem" onClick={() => { pickUnit(group); setContextMenu(null) }}>
+                          {active ? '✓ ' : ''}{member.name}
+                        </button>
+                      )
+                    })}
+                    <button type="button" role="menuitem" onClick={() => { setRailVisible(true); controller.show(); setContextMenu(null) }}>Show Tabs</button>
+                  </>
+                  : <>
+                    <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
+                    <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.copyAsHtml(); setContextMenu(null) }}>Copy as HTML</button>
+                    <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.paste(); setContextMenu(null) }}>Paste</button>
+                    <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.selectAll(); setContextMenu(null) }}>Select All</button>
+                    <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.clear(); setContextMenu(null) }}>Clear</button>
+                    <button type="button" role="menuitem" onClick={() => { restartActive(); setContextMenu(null) }}>Restart</button>
+                  </>}
           </div>,
           document.body,
         )}
       </div>
     </section>
+    {(!snapshot.open || !railVisible) && sessions.length > 0 && createPortal(
+      <button type="button" className={css.statusEntry} onClick={openPickerMenu}>
+        <TerminalIcon />
+        <span>{activeUnitLabel}</span>
+      </button>,
+      document.body,
+    )}
+    </>
   )
 }
