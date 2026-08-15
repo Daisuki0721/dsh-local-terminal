@@ -1,5 +1,6 @@
 export interface PersistedSession {
     id: number;
+    sessionId?: string;
     name: string;
     cwd?: string;
 }

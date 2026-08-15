@@ -6,11 +6,14 @@ export type TerminalClientFrame = {
     type: 'resize';
     cols: number;
     rows: number;
+} | {
+    type: 'kill';
 };
 export type TerminalServerFrame = {
     type: 'ready';
     cwd: string;
     shell: string;
+    replayed?: boolean;
 } | {
     type: 'output';
     data: string;

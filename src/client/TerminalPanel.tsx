@@ -14,9 +14,14 @@ import css from './terminal.module.css'
 
 interface TerminalSessionModel {
   id: number
+  sessionId: string
   name: string
   cwd?: string
   restart: number
+}
+
+function newSessionId(): string {
+  return `zsh-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
 }
 
 interface TerminalActions {
@@ -60,6 +65,7 @@ function TerminalSession({
   const fitRef = useRef<FitAddon | null>(null)
   const connectionRef = useRef<LocalTerminalConnection | null>(null)
   const activeRef = useRef(active)
+  const sawDisconnectRef = useRef(false)
 
   useEffect(() => { activeRef.current = active }, [active])
 
@@ -103,7 +109,7 @@ function TerminalSession({
         term.unicode.activeVersion = '11'
         term.open(host)
         fit.fit()
-        const connection = openTerminal(session.cwd, term.cols, term.rows)
+        const connection = openTerminal(session.cwd, term.cols, term.rows, session.sessionId)
         termRef.current = term
         fitRef.current = fit
         connectionRef.current = connection
@@ -135,7 +141,11 @@ function TerminalSession({
         })
 
         const data = term.onData(value => { connection.send(value) })
-        connection.onReady = cwd => {
+        connection.onReady = (cwd, _shell, replayed) => {
+          if (sawDisconnectRef.current) {
+            sawDisconnectRef.current = false
+            term.reset()
+          }
           onStatus(session.id, cwd)
           if (!activeRef.current) return
           requestAnimationFrame(() => {
@@ -143,6 +153,12 @@ function TerminalSession({
             connection.resize(term.cols, term.rows)
             term.focus()
           })
+        }
+        connection.onState = state => {
+          if (state === 'reconnecting') {
+            sawDisconnectRef.current = true
+            onStatus(session.id, 'Reconnecting…')
+          }
         }
         connection.onOutput = value => { term.write(value) }
         connection.onExit = (code, error) => {
@@ -175,7 +191,7 @@ function TerminalSession({
       disposed = true
       disposeTerminal?.()
     }
-  }, [onActions, onStatus, session.cwd, session.id, session.restart])
+  }, [onActions, onStatus, session.cwd, session.id, session.restart, session.sessionId])
 
   useEffect(() => {
     if (!active) return
@@ -200,7 +216,13 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
   const [restored] = useState(loadTerminalState)
   const [sessions, setSessions] = useState<TerminalSessionModel[]>(() =>
-    restored.sessions.map(session => ({ ...session, restart: 0 })))
+    restored.sessions.map(session => ({
+      id: session.id,
+      sessionId: session.sessionId ?? newSessionId(),
+      name: session.name,
+      cwd: session.cwd,
+      restart: 0,
+    })))
   const [activeId, setActiveId] = useState<number | null>(() =>
     restored.activeId !== null && restored.sessions.some(session => session.id === restored.activeId)
       ? restored.activeId
@@ -242,7 +264,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const addSession = useCallback((cwd?: string) => {
     const id = allocateId()
-    setSessions(previous => [...previous, { id, name: `zsh ${id}`, cwd, restart: 0 }])
+    setSessions(previous => [...previous, { id, sessionId: newSessionId(), name: `zsh ${id}`, cwd, restart: 0 }])
     setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
     setActiveId(id)
   }, [])
@@ -263,7 +285,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       height: readVariable('--dsh-terminal-height'),
       railWidth: readVariable('--dsh-terminal-rail-width'),
       activeId: active,
-      sessions: list.map((session): PersistedSession => ({ id: session.id, name: session.name, cwd: session.cwd })),
+      sessions: list.map((session): PersistedSession => ({ id: session.id, sessionId: session.sessionId, name: session.name, cwd: session.cwd })),
     })
   }, [])
 
@@ -528,7 +550,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     if (activeId === null) return
     setStatuses(previous => ({ ...previous, [activeId]: 'Restarting zsh...' }))
     setSessions(previous => previous.map(session => session.id === activeId
-      ? { ...session, restart: session.restart + 1 }
+      ? { ...session, sessionId: newSessionId(), restart: session.restart + 1 }
       : session))
   }
 

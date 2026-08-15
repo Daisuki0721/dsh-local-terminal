@@ -1,6 +1,10 @@
 export interface LocalPtySession {
     readonly cwd: string;
     readonly shell: string;
+    readonly exitState: {
+        exitCode: number;
+        signal?: number;
+    } | null;
     write(data: string): void;
     resize(cols: number, rows: number): void;
     close(): void;

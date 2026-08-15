@@ -3,8 +3,9 @@ export const LOCAL_TERMINAL_PATH = '/api/dsh-local-terminal/pty' as const
 export type TerminalClientFrame =
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
+  | { type: 'kill' }
 
 export type TerminalServerFrame =
-  | { type: 'ready'; cwd: string; shell: string }
+  | { type: 'ready'; cwd: string; shell: string; replayed?: boolean }
   | { type: 'output'; data: string }
   | { type: 'exit'; code: number | null; signal?: number; error?: string }

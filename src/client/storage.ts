@@ -2,6 +2,7 @@ const STORAGE_KEY = 'dsh.localTerminal.v1'
 
 export interface PersistedSession {
   id: number
+  sessionId?: string
   name: string
   cwd?: string
 }
@@ -29,7 +30,8 @@ export function loadTerminalState(): PersistedTerminalState {
       ? parsed.sessions.filter((session): session is PersistedSession =>
         typeof session === 'object' && session !== null
         && typeof session.id === 'number' && Number.isFinite(session.id)
-        && typeof session.name === 'string')
+        && typeof session.name === 'string'
+        && (session.sessionId === undefined || typeof session.sessionId === 'string'))
       : []
     return {
       open: parsed.open === true,

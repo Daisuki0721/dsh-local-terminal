@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url)
 export interface LocalPtySession {
   readonly cwd: string
   readonly shell: string
+  readonly exitState: { exitCode: number; signal?: number } | null
   write(data: string): void
   resize(cols: number, rows: number): void
   close(): void
@@ -75,7 +76,9 @@ export function openLocalPty(options: { cwd?: string; cols: number; rows: number
     },
   })
   let closed = false
+  let exitState: { exitCode: number; signal?: number } | null = null
   const dataListeners = new Set<(data: string) => void>()
+  const exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>()
   const pendingData: string[] = []
   let pendingLength = 0
   const dataSubscription = child.onData(data => {
@@ -84,16 +87,22 @@ export function openLocalPty(options: { cwd?: string; cols: number; rows: number
       return
     }
     // zsh (especially Powerlevel10k instant prompt) can write before the
-    // websocket route has installed its listener. Keep that short startup
-    // burst so cursor movement/erase sequences aren't lost.
+    // websocket route has installed its listener, and a detached session
+    // keeps producing output while the client reconnects. Keep that output
+    // in a bounded buffer so it can be replayed on (re)attach.
     if (pendingLength < 1024 * 1024) {
       pendingData.push(data)
       pendingLength += data.length
     }
   })
+  child.onExit(event => {
+    exitState = { exitCode: event.exitCode, ...(event.signal !== undefined ? { signal: event.signal } : {}) }
+    for (const listener of exitListeners) listener(event)
+  })
   return {
     cwd,
     shell,
+    get exitState() { return exitState },
     write: data => { if (!closed) child.write(data) },
     resize: (cols, rows) => {
       if (closed) return
@@ -105,6 +114,7 @@ export function openLocalPty(options: { cwd?: string; cols: number; rows: number
       closed = true
       dataSubscription.dispose()
       dataListeners.clear()
+      exitListeners.clear()
       pendingData.length = 0
       try { child.kill() } catch { /* already exited */ }
     },
@@ -117,6 +127,10 @@ export function openLocalPty(options: { cwd?: string; cols: number; rows: number
       }
       return { dispose: () => { dataListeners.delete(listener) } }
     },
-    onExit: listener => child.onExit(listener),
+    onExit: listener => {
+      exitListeners.add(listener)
+      if (exitState !== null) listener(exitState)
+      return { dispose: () => { exitListeners.delete(listener) } }
+    },
   }
 }
