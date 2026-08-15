@@ -3,3 +3,4 @@ coverage/
 *.tgz
 lib/*.map
 .DS_Store
+.gitignore

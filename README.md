@@ -109,14 +109,6 @@ cordis.patch.yml         DSH loader 插件声明
 
 ## 常见问题
 
-### `EADDRINUSE: 127.0.0.1:3080`
-
-已经有一个 `dsh web` 进程占用了端口。停止旧进程后再启动，不要同时运行两个实例。
-
-### Powerlevel10k 图标显示不完整
-
-建议安装 MesloLGS Nerd Font。插件优先使用 `MesloLGS Nerd Font Mono`，并回退到 Meslo、Menlo、Monaco 和系统等宽字体。
-
 ### 安装后没有出现 Terminal 按钮
 
 确认插件存在于 `web` profile，然后完整重启 `dsh web`。单纯刷新浏览器不能加载新的 Host 插件。
