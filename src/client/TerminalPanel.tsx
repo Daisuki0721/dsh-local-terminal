@@ -603,7 +603,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     // flipping above when the viewport bottom would clip the menu.
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = 180
-    const itemCount = groups.length + 1 // one entry per unit plus Show Tabs
+    const itemCount = groups.length + (railVisible ? 0 : 1) // Show Tabs only while the rail is hidden
     const menuHeight = Math.min(itemCount * 26 + 10, 264)
     const margin = 6
     const left = Math.max(margin, Math.min(rect.left, window.innerWidth - menuWidth - margin))
@@ -1092,7 +1092,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                         </button>
                       )
                     })}
-                    <button type="button" role="menuitem" onClick={() => { setRailVisible(true); controller.show(); setContextMenu(null) }}>Show Tabs</button>
+                    {!railVisible && (
+                      <button type="button" role="menuitem" onClick={() => { setRailVisible(true); controller.show(); setContextMenu(null) }}>Show Tabs</button>
+                    )}
                   </>
                   : <>
                     <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
