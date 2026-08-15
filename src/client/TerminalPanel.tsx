@@ -614,9 +614,10 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const openTerminalMenu = useCallback((id: number, left: number, top: number, canCopy: boolean): void => {
     setActiveId(id)
-    // menuHeight must match six 26px items + padding/border.
+    // 26px per item + padding/border; Show Tabs joins while the rail is hidden.
     const menuWidth = 140
-    const menuHeight = 166
+    const itemCount = 6 + (railVisible ? 0 : 1)
+    const menuHeight = itemCount * 26 + 10
     const margin = 6
     setContextMenu({
       id,
@@ -625,7 +626,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       left: Math.max(margin, Math.min(left, window.innerWidth - menuWidth - margin)),
       top: Math.max(margin, Math.min(top, window.innerHeight - menuHeight - margin)),
     })
-  }, [])
+  }, [railVisible])
 
   const beginRename = (unitKey: number): void => {
     const session = sessions.find(candidate => candidate.id === unitKey)
@@ -1077,6 +1078,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                     <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.selectAll(); setContextMenu(null) }}>Select All</button>
                     <button type="button" role="menuitem" onClick={() => { actionsRef.current.get(contextMenu.id)?.clear(); setContextMenu(null) }}>Clear</button>
                     <button type="button" role="menuitem" onClick={() => { restartActive(); setContextMenu(null) }}>Restart</button>
+                    {!railVisible && (
+                      <button type="button" role="menuitem" onClick={() => { setRailVisible(true); setContextMenu(null) }}>Show Tabs</button>
+                    )}
                   </>}
           </div>,
           document.body,
