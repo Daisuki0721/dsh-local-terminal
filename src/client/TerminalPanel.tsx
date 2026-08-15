@@ -306,6 +306,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const [renameDraft, setRenameDraft] = useState('')
   const [railSide, setRailSide] = useState<'left' | 'right'>(() => restored.railSide ?? 'right')
   const [railVisible, setRailVisible] = useState<boolean>(() => restored.railVisible ?? true)
+  const [statusHost] = useState(() => {
+    const host = document.createElement('span')
+    host.className = css.statusHost
+    return host
+  })
   const usedIdsRef = useRef<Set<number> | null>(null)
   const actionsRef = useRef(new Map<number, TerminalActions>())
   const panelRef = useRef<HTMLElement | null>(null)
@@ -327,6 +332,32 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   useEffect(() => { railVisibleRef.current = railVisible }, [railVisible])
 
   useEffect(() => { ensureXtermCss() }, [])
+
+  useEffect(() => {
+    // Dock the status picker into the conversation's composer dock (the bar
+    // that already hosts the token stats), falling back to a fixed corner
+    // pill while no conversation dock exists (hero phase).
+    const STATUS_DOCK = '[data-slot="conversation.composer.dock"]'
+    const placeStatus = (): void => {
+      const dock = document.querySelector<HTMLElement>(STATUS_DOCK)
+      if (dock !== null && dock.isConnected) {
+        if (statusHost.parentElement !== dock) dock.append(statusHost)
+        delete statusHost.dataset.fallback
+      } else {
+        if (statusHost.parentElement !== document.body) document.body.append(statusHost)
+        statusHost.dataset.fallback = 'true'
+      }
+    }
+    placeStatus()
+    const observer = new MutationObserver(placeStatus)
+    observer.observe(document.body, { childList: true, subtree: true })
+    const timer = window.setInterval(placeStatus, 4000)
+    return () => {
+      observer.disconnect()
+      window.clearInterval(timer)
+      statusHost.remove()
+    }
+  }, [statusHost])
 
   useEffect(() => {
     usedIdsRef.current = new Set(sessions.map(session => session.id))
@@ -1092,7 +1123,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         <TerminalIcon />
         <span>{activeUnitLabel}</span>
       </button>,
-      document.body,
+      statusHost,
     )}
     </>
   )
