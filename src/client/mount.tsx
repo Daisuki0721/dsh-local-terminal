@@ -53,7 +53,20 @@ export function mountTerminalPanel(controller: TerminalController): () => void {
   })
   place()
 
+  const onToggleKey = (event: KeyboardEvent): void => {
+    if (event.code !== 'Backquote' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
+    const target = event.target
+    if (target instanceof HTMLElement) {
+      const editable = target.closest('input, textarea, [contenteditable="true"]')
+      if (editable !== null && editable.closest('[data-dsh-local-terminal-root]') === null) return
+    }
+    event.preventDefault()
+    controller.toggle()
+  }
+  window.addEventListener('keydown', onToggleKey)
+
   return () => {
+    window.removeEventListener('keydown', onToggleKey)
     observer.disconnect()
     resizeObserver.disconnect()
     host.removeEventListener('transitionend', scheduleConversationReflow)

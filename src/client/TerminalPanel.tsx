@@ -4,6 +4,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import { SearchAddon } from '@xterm/addon-search'
 import { openTerminal, type LocalTerminalConnection } from './api.ts'
 import type { TerminalController } from './controller.ts'
 import { loadTerminalState, saveTerminalState, type PersistedSession } from './storage.ts'
@@ -20,6 +21,9 @@ interface TerminalSessionModel {
 
 interface TerminalActions {
   clear(): void
+  focus(): void
+  findNext(query: string): boolean
+  findPrevious(query: string): boolean
 }
 
 interface TerminalContextMenu {
@@ -43,11 +47,13 @@ function TerminalSession({
   active,
   onStatus,
   onActions,
+  onFindRequest,
 }: {
   session: TerminalSessionModel
   active: boolean
   onStatus: (id: number, status: string) => void
   onActions: (id: number, actions: TerminalActions | null) => void
+  onFindRequest: (id: number) => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -90,8 +96,10 @@ function TerminalSession({
         })
         const fit = new FitAddon()
         const unicode11 = new Unicode11Addon()
+        const search = new SearchAddon()
         term.loadAddon(fit)
         term.loadAddon(unicode11)
+        term.loadAddon(search)
         term.unicode.activeVersion = '11'
         term.open(host)
         fit.fit()
@@ -99,7 +107,32 @@ function TerminalSession({
         termRef.current = term
         fitRef.current = fit
         connectionRef.current = connection
-        onActions(session.id, { clear: () => { term.clear() } })
+        onActions(session.id, {
+          clear: () => { term.clear() },
+          focus: () => { term.focus() },
+          findNext: query => query === '' ? true : search.findNext(query),
+          findPrevious: query => query === '' ? true : search.findPrevious(query),
+        })
+
+        const pasteFromClipboard = (): void => {
+          void navigator.clipboard.readText()
+            .then(text => { if (text !== '') term.paste(text) })
+            .catch(() => { /* clipboard unavailable */ })
+        }
+        term.attachCustomKeyEventHandler(event => {
+          if (event.type !== 'keydown') return true
+          const primary = event.metaKey || event.ctrlKey
+          if (!primary || event.altKey) return true
+          if (event.code === 'KeyV' && (event.metaKey || event.shiftKey)) {
+            pasteFromClipboard()
+            return false
+          }
+          if (event.code === 'KeyF' && event.shiftKey) {
+            onFindRequest(session.id)
+            return false
+          }
+          return true
+        })
 
         const data = term.onData(value => { connection.send(value) })
         connection.onReady = cwd => {
@@ -178,6 +211,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const [dragId, setDragId] = useState<number | null>(null)
   const [dragMetrics, setDragMetrics] = useState<{ top: number; stride: number; source: number } | null>(null)
   const [insertIndex, setInsertIndex] = useState<number | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchFound, setSearchFound] = useState(true)
   const [renameDraft, setRenameDraft] = useState('')
   const usedIdsRef = useRef<Set<number> | null>(null)
   const actionsRef = useRef(new Map<number, TerminalActions>())
@@ -498,6 +534,40 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const activeStatus = activeId === null ? '' : statuses[activeId] ?? ''
 
+  const openSearch = useCallback((id: number): void => {
+    setActiveId(id)
+    setSearchQuery('')
+    setSearchFound(true)
+    setSearchOpen(true)
+  }, [])
+
+  const handleSearchChange = (value: string): void => {
+    setSearchQuery(value)
+  }
+
+  const searchPrevious = (): void => {
+    if (searchQuery === '') return
+    const actions = activeId === null ? undefined : actionsRef.current.get(activeId)
+    if (actions !== undefined) setSearchFound(actions.findPrevious(searchQuery))
+  }
+
+  const searchNext = (): void => {
+    if (searchQuery === '') return
+    const actions = activeId === null ? undefined : actionsRef.current.get(activeId)
+    if (actions !== undefined) setSearchFound(actions.findNext(searchQuery))
+  }
+
+  const closeSearch = (): void => {
+    setSearchOpen(false)
+    if (activeId !== null) actionsRef.current.get(activeId)?.focus()
+  }
+
+  useEffect(() => {
+    if (!searchOpen || searchQuery === '' || activeId === null) return
+    const actions = actionsRef.current.get(activeId)
+    if (actions !== undefined) setSearchFound(actions.findNext(searchQuery))
+  }, [activeId, searchOpen, searchQuery])
+
   const dragIndicatorTop = dragMetrics !== null && insertIndex !== null
     && insertIndex !== dragMetrics.source && insertIndex !== dragMetrics.source + 1
     ? dragMetrics.top + insertIndex * dragMetrics.stride - 2
@@ -523,15 +593,16 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     const onKey = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || !snapshot.open) return
       if (contextMenu !== null) setContextMenu(null)
+      else if (searchOpen) closeSearch()
       else if (editingId !== null) setEditingId(null)
       else controller.hide()
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey) }
-  }, [contextMenu, controller, editingId, snapshot.open])
+  }, [activeId, contextMenu, controller, editingId, searchOpen, snapshot.open])
 
   return (
-    <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
+    <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
       <div
         className={css.resizeHandle}
         role="separator"
@@ -553,11 +624,33 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         </div>
         <div className={css.panelActions}>
           <button type="button" className={css.iconButton} aria-label="Create terminal" title="Create terminal" onClick={() => { addSession(snapshot.cwd) }}>+</button>
+          <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) openSearch(activeId) }}>Find</button>
           <button type="button" className={css.headerButton} onClick={() => { if (activeId !== null) actionsRef.current.get(activeId)?.clear() }}>Clear</button>
           <button type="button" className={css.headerButton} onClick={restartActive}>Restart</button>
           <button type="button" className={css.closeButton} aria-label="Hide terminal panel" title="Hide terminal panel" onClick={() => { controller.hide() }}>×</button>
         </div>
       </header>
+      {searchOpen && (
+        <div className={css.searchBar}>
+          <input
+            autoFocus
+            value={searchQuery}
+            data-notfound={searchFound ? undefined : 'true'}
+            placeholder="Find"
+            aria-label="Find in terminal"
+            onChange={event => { handleSearchChange(event.target.value) }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter') return
+              event.preventDefault()
+              if (event.shiftKey) searchPrevious()
+              else searchNext()
+            }}
+          />
+          <button type="button" className={css.searchNav} aria-label="Previous match" title="Previous match" onClick={searchPrevious}>↑</button>
+          <button type="button" className={css.searchNav} aria-label="Next match" title="Next match" onClick={searchNext}>↓</button>
+          <button type="button" className={css.searchNav} aria-label="Close search" title="Close search" onClick={closeSearch}>×</button>
+        </div>
+      )}
       <div className={css.panelBody}>
         <div
           className={css.railDivider}
@@ -580,6 +673,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
               active={snapshot.open && session.id === activeId}
               onStatus={onStatus}
               onActions={onActions}
+              onFindRequest={openSearch}
             />
           ))}
         </div>
