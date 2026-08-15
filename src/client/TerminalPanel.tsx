@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { openTerminal, type LocalTerminalConnection } from './api.ts'
 import type { TerminalController } from './controller.ts'
+import { loadTerminalState, saveTerminalState, type PersistedSession } from './storage.ts'
 import { TerminalIcon } from './TerminalButton.tsx'
 import { XTERM_CSS } from './xterm-css.ts'
 import css from './terminal.module.css'
@@ -164,8 +165,13 @@ function TerminalSession({
 
 export function TerminalPanel({ controller }: { controller: TerminalController }) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
-  const [sessions, setSessions] = useState<TerminalSessionModel[]>([])
-  const [activeId, setActiveId] = useState<number | null>(null)
+  const [restored] = useState(loadTerminalState)
+  const [sessions, setSessions] = useState<TerminalSessionModel[]>(() =>
+    restored.sessions.map(session => ({ ...session, restart: 0 })))
+  const [activeId, setActiveId] = useState<number | null>(() =>
+    restored.activeId !== null && restored.sessions.some(session => session.id === restored.activeId)
+      ? restored.activeId
+      : restored.sessions[0]?.id ?? null)
   const [statuses, setStatuses] = useState<Record<number, string>>({})
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -173,8 +179,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const [dragMetrics, setDragMetrics] = useState<{ top: number; stride: number; source: number } | null>(null)
   const [insertIndex, setInsertIndex] = useState<number | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
-  const nextIdRef = useRef(1)
-  const freedIdsRef = useRef<number[]>([])
+  const usedIdsRef = useRef<Set<number> | null>(null)
   const actionsRef = useRef(new Map<number, TerminalActions>())
   const panelRef = useRef<HTMLElement | null>(null)
   const railRef = useRef<HTMLElement | null>(null)
@@ -187,19 +192,20 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   useEffect(() => { ensureXtermCss() }, [])
 
+  useEffect(() => {
+    usedIdsRef.current = new Set(sessions.map(session => session.id))
+  }, [sessions])
+
+  const allocateId = (): number => {
+    const used = usedIdsRef.current ?? (usedIdsRef.current = new Set(sessions.map(session => session.id)))
+    let id = 1
+    while (used.has(id)) id++
+    used.add(id)
+    return id
+  }
+
   const addSession = useCallback((cwd?: string) => {
-    const freed = freedIdsRef.current
-    let id: number
-    if (freed.length !== 0) {
-      let index = 0
-      for (let i = 1; i < freed.length; i++) {
-        if (freed[i] < freed[index]) index = i
-      }
-      id = freed[index]
-      freed.splice(index, 1)
-    } else {
-      id = nextIdRef.current++
-    }
+    const id = allocateId()
     setSessions(previous => [...previous, { id, name: `zsh ${id}`, cwd, restart: 0 }])
     setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
     setActiveId(id)
@@ -208,6 +214,41 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   useEffect(() => {
     if (snapshot.open && sessions.length === 0) addSession(snapshot.cwd)
   }, [addSession, sessions.length, snapshot.cwd, snapshot.open])
+
+  const persistState = useCallback((open: boolean, active: number | null, list: TerminalSessionModel[]) => {
+    const mount = panelRef.current?.parentElement
+    const readVariable = (name: string): string | undefined => {
+      if (!(mount instanceof HTMLElement)) return undefined
+      const value = mount.style.getPropertyValue(name)
+      return value === '' ? undefined : value
+    }
+    saveTerminalState({
+      open,
+      height: readVariable('--dsh-terminal-height'),
+      railWidth: readVariable('--dsh-terminal-rail-width'),
+      activeId: active,
+      sessions: list.map((session): PersistedSession => ({ id: session.id, name: session.name, cwd: session.cwd })),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (restored.open) controller.show()
+  }, [controller, restored.open])
+
+  useEffect(() => {
+    const mount = panelRef.current?.parentElement
+    if (!(mount instanceof HTMLElement)) return
+    if (restored.height !== undefined && restored.height !== '') {
+      mount.style.setProperty('--dsh-terminal-height', restored.height)
+    }
+    if (restored.railWidth !== undefined && restored.railWidth !== '') {
+      mount.style.setProperty('--dsh-terminal-rail-width', restored.railWidth)
+    }
+  }, [restored.height, restored.railWidth])
+
+  useEffect(() => {
+    persistState(snapshot.open, activeId, sessions)
+  }, [activeId, persistState, sessions, snapshot.open])
 
   const onStatus = useCallback((id: number, status: string) => {
     setStatuses(previous => previous[id] === status ? previous : { ...previous, [id]: status })
@@ -219,8 +260,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   }, [])
 
   const closeSession = (id: number): void => {
-    const freed = freedIdsRef.current
-    if (!freed.includes(id)) freed.push(id)
+    usedIdsRef.current?.delete(id)
     const index = sessions.findIndex(session => session.id === id)
     const remaining = sessions.filter(session => session.id !== id)
     setSessions(remaining)
@@ -379,6 +419,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       window.removeEventListener('pointercancel', finish)
       window.dispatchEvent(new Event('resize'))
       resizeCleanupRef.current = null
+      persistState(snapshot.open, activeId, sessions)
     }
     resizeCleanupRef.current = finish
     window.addEventListener('pointermove', move)
@@ -393,6 +434,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     if (!(mount instanceof HTMLElement)) return
     const delta = event.key === 'ArrowUp' ? 24 : -24
     setPanelHeight(mount.getBoundingClientRect().height + delta)
+    persistState(snapshot.open, activeId, sessions)
   }
 
   const setRailWidth = (width: number): void => {
@@ -428,6 +470,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       window.removeEventListener('pointercancel', finish)
       window.dispatchEvent(new Event('resize'))
       railResizeCleanupRef.current = null
+      persistState(snapshot.open, activeId, sessions)
     }
     railResizeCleanupRef.current = finish
     window.addEventListener('pointermove', move)
@@ -442,6 +485,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     if (rail === null) return
     const delta = event.key === 'ArrowRight' ? -24 : 24
     setRailWidth(rail.getBoundingClientRect().width + delta)
+    persistState(snapshot.open, activeId, sessions)
   }
 
   const restartActive = (): void => {
@@ -496,7 +540,10 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         tabIndex={0}
         onPointerDown={startResize}
         onKeyDown={resizeWithKeyboard}
-        onDoubleClick={() => { panelRef.current?.parentElement?.style.removeProperty('--dsh-terminal-height') }}
+        onDoubleClick={() => {
+          panelRef.current?.parentElement?.style.removeProperty('--dsh-terminal-height')
+          persistState(snapshot.open, activeId, sessions)
+        }}
       />
       <header className={css.panelHeader}>
         <div className={css.panelTitle}>
@@ -520,7 +567,10 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
           tabIndex={0}
           onPointerDown={startRailResize}
           onKeyDown={resizeRailWithKeyboard}
-          onDoubleClick={() => { panelRef.current?.parentElement?.style.removeProperty('--dsh-terminal-rail-width') }}
+          onDoubleClick={() => {
+            panelRef.current?.parentElement?.style.removeProperty('--dsh-terminal-rail-width')
+            persistState(snapshot.open, activeId, sessions)
+          }}
         />
         <div className={css.terminalStage}>
           {sessions.map(session => (
