@@ -8,6 +8,11 @@ export interface PersistedTerminalState {
     open: boolean;
     height?: string;
     railWidth?: string;
+    split?: {
+        leftId: number;
+        rightId: number;
+    } | null;
+    splitRatio?: string;
     activeId: number | null;
     sessions: PersistedSession[];
 }

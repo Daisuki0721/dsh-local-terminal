@@ -19,6 +19,8 @@ A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
 - `Cmd+V` / `Ctrl+Shift+V` 粘贴；`Ctrl+Shift+F` 或 `Find` 按钮在终端内搜索。
 - `Cmd+A` 全选、`Cmd+K` 清屏（均提供 `Ctrl+Shift+` 别名，不劫持 shell 的 `Ctrl+A`/`Ctrl+K`）。
 - 终端区域右键菜单：Copy / Copy as HTML / Paste / Select All / Clear / Restart，视口内自动避让。
+- 标签右键 `Split Terminal` 左右分屏（分割线可拖动、双击复位，焦点跟随点击）；`Join Terminals` 合并回单窗格。
+- 分屏布局与分割比例随会话状态一起持久化。
 - 面板高度变化时通知对话视图重新布局，避免虚拟列表裁切滞后。
 - 使用 xterm.js、Unicode 11 宽度规则和 Nerd Font 回退字体。
 

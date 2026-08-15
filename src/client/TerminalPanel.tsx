@@ -57,14 +57,16 @@ function ensureXtermCss(): void {
 
 function TerminalSession({
   session,
-  active,
+  visible,
+  focused,
   onStatus,
   onActions,
   onFindRequest,
   onTerminalMenu,
 }: {
   session: TerminalSessionModel
-  active: boolean
+  visible: boolean
+  focused: boolean
   onStatus: (id: number, status: string) => void
   onActions: (id: number, actions: TerminalActions | null) => void
   onFindRequest: (id: number) => void
@@ -74,10 +76,12 @@ function TerminalSession({
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const connectionRef = useRef<LocalTerminalConnection | null>(null)
-  const activeRef = useRef(active)
+  const visibleRef = useRef(visible)
+  const focusedRef = useRef(focused)
   const sawDisconnectRef = useRef(false)
 
-  useEffect(() => { activeRef.current = active }, [active])
+  useEffect(() => { visibleRef.current = visible }, [visible])
+  useEffect(() => { focusedRef.current = focused }, [focused])
 
   useEffect(() => {
     const host = hostRef.current
@@ -188,7 +192,7 @@ function TerminalSession({
             term.reset()
           }
           onStatus(session.id, cwd)
-          if (!activeRef.current) return
+          if (!focusedRef.current) return
           requestAnimationFrame(() => {
             fit.fit()
             connection.resize(term.cols, term.rows)
@@ -207,7 +211,7 @@ function TerminalSession({
           onStatus(session.id, error ?? `zsh exited (${code ?? 'unknown'})`)
         }
         const resize = new ResizeObserver(() => {
-          if (!activeRef.current) return
+          if (!visibleRef.current) return
           requestAnimationFrame(() => {
             try {
               fit.fit()
@@ -235,19 +239,19 @@ function TerminalSession({
   }, [onActions, onStatus, session.cwd, session.id, session.restart, session.sessionId])
 
   useEffect(() => {
-    if (!active) return
+    if (!visible) return
     requestAnimationFrame(() => {
       const term = termRef.current
       const fit = fitRef.current
       if (term === null || fit === null) return
       fit.fit()
       connectionRef.current?.resize(term.cols, term.rows)
-      term.focus()
+      if (focused) term.focus()
     })
-  }, [active])
+  }, [focused, visible])
 
   return (
-    <div className={css.terminalView} data-active={active ? 'true' : undefined} aria-hidden={!active}>
+    <div className={css.terminalView} data-active={visible ? 'true' : undefined} aria-hidden={!visible}>
       <div
         className={css.terminalHost}
         ref={hostRef}
@@ -276,6 +280,13 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     restored.activeId !== null && restored.sessions.some(session => session.id === restored.activeId)
       ? restored.activeId
       : restored.sessions[0]?.id ?? null)
+  const [splitPair, setSplitPair] = useState<{ leftId: number; rightId: number } | null>(() => {
+    const stored = restored.split
+    if (stored !== null && stored !== undefined
+      && restored.sessions.some(session => session.id === stored.leftId)
+      && restored.sessions.some(session => session.id === stored.rightId)) return stored
+    return null
+  })
   const [statuses, setStatuses] = useState<Record<number, string>>({})
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -293,9 +304,14 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
   const railResizeCleanupRef = useRef<(() => void) | null>(null)
+  const splitResizeCleanupRef = useRef<(() => void) | null>(null)
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const insertIndexRef = useRef<number | null>(null)
   const renameCancelledRef = useRef(false)
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const splitRef = useRef<{ leftId: number; rightId: number } | null>(splitPair)
+
+  useEffect(() => { splitRef.current = splitPair }, [splitPair])
 
   useEffect(() => { ensureXtermCss() }, [])
 
@@ -316,6 +332,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     setSessions(previous => [...previous, { id, sessionId: newSessionId(), name: `zsh ${id}`, cwd, restart: 0 }])
     setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
     setActiveId(id)
+    setSplitPair(null)
   }, [])
 
   useEffect(() => {
@@ -324,15 +341,17 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const persistState = useCallback((open: boolean, active: number | null, list: TerminalSessionModel[]) => {
     const mount = panelRef.current?.parentElement
-    const readVariable = (name: string): string | undefined => {
-      if (!(mount instanceof HTMLElement)) return undefined
-      const value = mount.style.getPropertyValue(name)
+    const readVariable = (name: string, element: HTMLElement | null | undefined): string | undefined => {
+      if (!(element instanceof HTMLElement)) return undefined
+      const value = element.style.getPropertyValue(name)
       return value === '' ? undefined : value
     }
     saveTerminalState({
       open,
-      height: readVariable('--dsh-terminal-height'),
-      railWidth: readVariable('--dsh-terminal-rail-width'),
+      height: readVariable('--dsh-terminal-height', mount),
+      railWidth: readVariable('--dsh-terminal-rail-width', mount),
+      split: splitRef.current,
+      splitRatio: readVariable('--dsh-terminal-split-ratio', stageRef.current),
       activeId: active,
       sessions: list.map((session): PersistedSession => ({ id: session.id, sessionId: session.sessionId, name: session.name, cwd: session.cwd })),
     })
@@ -354,8 +373,16 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   }, [restored.height, restored.railWidth])
 
   useEffect(() => {
+    const stage = stageRef.current
+    if (stage === null) return
+    if (restored.splitRatio !== undefined && restored.splitRatio !== '') {
+      stage.style.setProperty('--dsh-terminal-split-ratio', restored.splitRatio)
+    }
+  }, [restored.splitRatio])
+
+  useEffect(() => {
     persistState(snapshot.open, activeId, sessions)
-  }, [activeId, persistState, sessions, snapshot.open])
+  }, [activeId, persistState, sessions, snapshot.open, splitPair])
 
   const onStatus = useCallback((id: number, status: string) => {
     setStatuses(previous => previous[id] === status ? previous : { ...previous, [id]: status })
@@ -377,7 +404,61 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       return next
     })
     if (activeId === id) setActiveId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null)
+    setSplitPair(previous => previous !== null && (previous.leftId === id || previous.rightId === id) ? null : previous)
     if (remaining.length === 0) controller.hide()
+  }
+
+  const splitSession = (id: number): void => {
+    if (splitPair !== null) return
+    const source = sessions.find(session => session.id === id)
+    const rightId = allocateId()
+    setSessions(previous => [...previous, {
+      id: rightId,
+      sessionId: newSessionId(),
+      name: `zsh ${rightId}`,
+      cwd: source?.cwd,
+      restart: 0,
+    }])
+    setStatuses(previous => ({ ...previous, [rightId]: 'Starting zsh...' }))
+    setSplitPair({ leftId: id, rightId })
+    setActiveId(id)
+  }
+
+  const joinTerminals = (): void => {
+    setSplitPair(null)
+  }
+
+  const startSplitResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    splitResizeCleanupRef.current?.()
+    const stage = stageRef.current
+    if (stage === null) return
+    const rect = stage.getBoundingClientRect()
+    if (rect.width <= 0) return
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    const setRatio = (x: number): void => {
+      const ratio = Math.min(0.75, Math.max(0.25, (x - rect.left) / rect.width))
+      stage.style.setProperty('--dsh-terminal-split-ratio', `${(ratio * 100).toFixed(2)}%`)
+    }
+    const move = (moveEvent: PointerEvent): void => { setRatio(moveEvent.clientX) }
+    let finished = false
+    const finish = (): void => {
+      if (finished) return
+      finished = true
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      window.dispatchEvent(new Event('resize'))
+      persistState(snapshot.open, activeId, sessions)
+      splitResizeCleanupRef.current = null
+    }
+    splitResizeCleanupRef.current = finish
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
   }
 
   const startSessionDrag = (event: ReactPointerEvent<HTMLDivElement>, id: number): void => {
@@ -448,9 +529,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     event.preventDefault()
     setActiveId(id)
     // Keep the menu fully inside the viewport; stick to the page edge when it
-    // would overflow. menuHeight must match two 26px items + padding/border.
+    // would overflow. menuHeight must match three 26px items + padding/border.
     const menuWidth = 140
-    const menuHeight = 64
+    const menuHeight = 88
     const margin = 6
     setContextMenu({
       id,
@@ -622,6 +703,12 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const activeStatus = activeId === null ? '' : statuses[activeId] ?? ''
 
+  const splitLeft = splitPair === null ? undefined : sessions.find(session => session.id === splitPair.leftId)
+  const splitRight = splitPair === null ? undefined : sessions.find(session => session.id === splitPair.rightId)
+  const splitView = splitPair !== null && splitLeft !== undefined && splitRight !== undefined
+    ? { left: splitLeft, right: splitRight }
+    : null
+
   const openSearch = useCallback((id: number): void => {
     setActiveId(id)
     setSearchQuery('')
@@ -674,6 +761,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   useEffect(() => () => {
     resizeCleanupRef.current?.()
     railResizeCleanupRef.current?.()
+    splitResizeCleanupRef.current?.()
     dragCleanupRef.current?.()
   }, [])
 
@@ -753,18 +841,67 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             persistState(snapshot.open, activeId, sessions)
           }}
         />
-        <div className={css.terminalStage}>
-          {sessions.map(session => (
-            <TerminalSession
-              key={`${session.id}:${session.restart}`}
-              session={session}
-              active={snapshot.open && session.id === activeId}
-              onStatus={onStatus}
-              onActions={onActions}
-              onFindRequest={openSearch}
-              onTerminalMenu={openTerminalMenu}
-            />
-          ))}
+        <div ref={stageRef} className={css.terminalStage} data-split={splitView !== null ? 'true' : undefined}>
+          {splitView !== null && splitPair !== null ? (
+            <>
+              <div
+                className={css.splitPane}
+                data-focused={activeId === splitPair.leftId ? 'true' : undefined}
+                onPointerDownCapture={() => { setActiveId(splitPair.leftId) }}
+              >
+                <TerminalSession
+                  key={`${splitView.left.id}:${splitView.left.restart}`}
+                  session={splitView.left}
+                  visible={snapshot.open}
+                  focused={snapshot.open && activeId === splitPair.leftId}
+                  onStatus={onStatus}
+                  onActions={onActions}
+                  onFindRequest={openSearch}
+                  onTerminalMenu={openTerminalMenu}
+                />
+              </div>
+              <div
+                className={css.splitDivider}
+                role="separator"
+                aria-label="Resize split terminals"
+                aria-orientation="vertical"
+                onPointerDown={startSplitResize}
+                onDoubleClick={() => {
+                  stageRef.current?.style.removeProperty('--dsh-terminal-split-ratio')
+                  persistState(snapshot.open, activeId, sessions)
+                }}
+              />
+              <div
+                className={css.splitPane}
+                data-focused={activeId === splitPair.rightId ? 'true' : undefined}
+                onPointerDownCapture={() => { setActiveId(splitPair.rightId) }}
+              >
+                <TerminalSession
+                  key={`${splitView.right.id}:${splitView.right.restart}`}
+                  session={splitView.right}
+                  visible={snapshot.open}
+                  focused={snapshot.open && activeId === splitPair.rightId}
+                  onStatus={onStatus}
+                  onActions={onActions}
+                  onFindRequest={openSearch}
+                  onTerminalMenu={openTerminalMenu}
+                />
+              </div>
+            </>
+          ) : (
+            sessions.map(session => (
+              <TerminalSession
+                key={`${session.id}:${session.restart}`}
+                session={session}
+                visible={snapshot.open && session.id === activeId}
+                focused={snapshot.open && session.id === activeId}
+                onStatus={onStatus}
+                onActions={onActions}
+                onFindRequest={openSearch}
+                onTerminalMenu={openTerminalMenu}
+              />
+            ))
+          )}
         </div>
         <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }}>
           {sessions.map(session => (
@@ -778,7 +915,10 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             >
               {editingId === session.id
                 ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${session.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, session.id) }} onBlur={() => { commitRename(session.id) }} /></div>
-                : <button type="button" className={css.sessionSelect} onClick={() => { setActiveId(session.id) }} title={statuses[session.id]}><TerminalIcon /><span>{session.name}</span></button>}
+                : <button type="button" className={css.sessionSelect} onClick={() => {
+                  setActiveId(session.id)
+                  if (splitPair !== null && splitPair.leftId !== session.id && splitPair.rightId !== session.id) setSplitPair(null)
+                }} title={statuses[session.id]}><TerminalIcon /><span>{session.name}</span></button>}
               <button type="button" className={css.sessionClose} aria-label={`Close ${session.name}`} title={`Close ${session.name}`} onClick={() => { closeSession(session.id) }}>×</button>
             </div>
           ))}
@@ -791,6 +931,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                 ? <>
                   <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
                   <button type="button" role="menuitem" onClick={() => { closeSession(contextMenu.id); setContextMenu(null) }}>Close</button>
+                  {splitPair === null
+                    ? <button type="button" role="menuitem" onClick={() => { splitSession(contextMenu.id); setContextMenu(null) }}>Split Terminal</button>
+                    : <button type="button" role="menuitem" onClick={() => { joinTerminals(); setContextMenu(null) }}>Join Terminals</button>}
                 </>
                 : <>
                   <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>
