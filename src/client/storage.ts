@@ -11,7 +11,8 @@ export interface PersistedTerminalState {
   open: boolean
   height?: string
   railWidth?: string
-  split?: { leftId: number; rightId: number } | null
+  /** Sidebar units; each unit holds 1..6 pane member ids sharing one name. */
+  groups?: number[][]
   splitRatio?: string
   activeId: number | null
   sessions: PersistedSession[]
@@ -19,7 +20,6 @@ export interface PersistedTerminalState {
 
 const EMPTY: PersistedTerminalState = {
   open: false,
-  split: null,
   activeId: null,
   sessions: [],
 }
@@ -28,7 +28,7 @@ export function loadTerminalState(): PersistedTerminalState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw === null) return EMPTY
-    const parsed = JSON.parse(raw) as Partial<PersistedTerminalState>
+    const parsed = JSON.parse(raw) as Partial<PersistedTerminalState> & { split?: unknown }
     const sessions = Array.isArray(parsed.sessions)
       ? parsed.sessions.filter((session): session is PersistedSession =>
         typeof session === 'object' && session !== null
@@ -36,17 +36,28 @@ export function loadTerminalState(): PersistedTerminalState {
         && typeof session.name === 'string'
         && (session.sessionId === undefined || typeof session.sessionId === 'string'))
       : []
-    const rawSplit = parsed.split
-    const split = typeof rawSplit === 'object' && rawSplit !== null
-      && typeof rawSplit.leftId === 'number' && Number.isFinite(rawSplit.leftId)
-      && typeof rawSplit.rightId === 'number' && Number.isFinite(rawSplit.rightId)
-      ? { leftId: rawSplit.leftId, rightId: rawSplit.rightId }
-      : null
+    const parseGroups = (): number[][] | undefined => {
+      if (Array.isArray(parsed.groups)) {
+        return parsed.groups.flatMap((raw): number[][] => {
+          if (!Array.isArray(raw)) return []
+          const members = raw.filter((id): id is number => typeof id === 'number' && Number.isFinite(id))
+          return members.length > 0 ? [members] : []
+        })
+      }
+      // Migrate the legacy single split pair into a two-pane group.
+      const rawSplit = parsed.split as { leftId?: unknown; rightId?: unknown } | undefined
+      if (typeof rawSplit === 'object' && rawSplit !== null
+        && typeof rawSplit.leftId === 'number' && Number.isFinite(rawSplit.leftId)
+        && typeof rawSplit.rightId === 'number' && Number.isFinite(rawSplit.rightId)) {
+        return [[rawSplit.leftId, rawSplit.rightId]]
+      }
+      return undefined
+    }
     return {
       open: parsed.open === true,
       height: typeof parsed.height === 'string' ? parsed.height : undefined,
       railWidth: typeof parsed.railWidth === 'string' ? parsed.railWidth : undefined,
-      split,
+      groups: parseGroups(),
       splitRatio: typeof parsed.splitRatio === 'string' ? parsed.splitRatio : undefined,
       activeId: typeof parsed.activeId === 'number' ? parsed.activeId : null,
       sessions,

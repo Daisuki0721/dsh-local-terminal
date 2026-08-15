@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { Terminal } from '@xterm/xterm'
@@ -280,12 +280,19 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     restored.activeId !== null && restored.sessions.some(session => session.id === restored.activeId)
       ? restored.activeId
       : restored.sessions[0]?.id ?? null)
-  const [splitPair, setSplitPair] = useState<{ leftId: number; rightId: number } | null>(() => {
-    const stored = restored.split
-    if (stored !== null && stored !== undefined
-      && restored.sessions.some(session => session.id === stored.leftId)
-      && restored.sessions.some(session => session.id === stored.rightId)) return stored
-    return null
+  const [groups, setGroups] = useState<number[][]>(() => {
+    const covered = new Set<number>()
+    const list: number[][] = []
+    for (const raw of restored.groups ?? []) {
+      const members = raw.filter(id => !covered.has(id) && restored.sessions.some(session => session.id === id))
+      if (members.length === 0) continue
+      for (const id of members) covered.add(id)
+      list.push(members)
+    }
+    for (const session of restored.sessions) {
+      if (!covered.has(session.id)) list.push([session.id])
+    }
+    return list
   })
   const [statuses, setStatuses] = useState<Record<number, string>>({})
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null)
@@ -309,9 +316,9 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const insertIndexRef = useRef<number | null>(null)
   const renameCancelledRef = useRef(false)
   const stageRef = useRef<HTMLDivElement | null>(null)
-  const splitRef = useRef<{ leftId: number; rightId: number } | null>(splitPair)
+  const groupsRef = useRef<number[][]>(groups)
 
-  useEffect(() => { splitRef.current = splitPair }, [splitPair])
+  useEffect(() => { groupsRef.current = groups }, [groups])
 
   useEffect(() => { ensureXtermCss() }, [])
 
@@ -331,8 +338,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     const id = allocateId()
     setSessions(previous => [...previous, { id, sessionId: newSessionId(), name: `zsh ${id}`, cwd, restart: 0 }])
     setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
+    setGroups(previous => [...previous, [id]])
     setActiveId(id)
-    setSplitPair(null)
   }, [])
 
   useEffect(() => {
@@ -350,7 +357,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       open,
       height: readVariable('--dsh-terminal-height', mount),
       railWidth: readVariable('--dsh-terminal-rail-width', mount),
-      split: splitRef.current,
+      groups: groupsRef.current,
       splitRatio: readVariable('--dsh-terminal-split-ratio', stageRef.current),
       activeId: active,
       sessions: list.map((session): PersistedSession => ({ id: session.id, sessionId: session.sessionId, name: session.name, cwd: session.cwd })),
@@ -382,7 +389,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   useEffect(() => {
     persistState(snapshot.open, activeId, sessions)
-  }, [activeId, persistState, sessions, snapshot.open, splitPair])
+  }, [activeId, groups, persistState, sessions, snapshot.open])
 
   const onStatus = useCallback((id: number, status: string) => {
     setStatuses(previous => previous[id] === status ? previous : { ...previous, [id]: status })
@@ -393,43 +400,54 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     else actionsRef.current.set(id, actions)
   }, [])
 
-  const closeSession = (id: number): void => {
-    usedIdsRef.current?.delete(id)
-    const index = sessions.findIndex(session => session.id === id)
-    const remaining = sessions.filter(session => session.id !== id)
+  const closeUnit = (group: number[]): void => {
+    const ids = new Set(group)
+    for (const id of group) usedIdsRef.current?.delete(id)
+    const remaining = sessions.filter(session => !ids.has(session.id))
     setSessions(remaining)
     setStatuses(previous => {
       const next = { ...previous }
-      delete next[id]
+      for (const id of group) delete next[id]
       return next
     })
-    if (activeId === id) setActiveId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null)
-    setSplitPair(previous => previous !== null && (previous.leftId === id || previous.rightId === id) ? null : previous)
+    setGroups(previous => previous.filter(candidate => candidate !== group))
+    if (activeId !== null && ids.has(activeId)) setActiveId(remaining[0]?.id ?? null)
     if (remaining.length === 0) controller.hide()
   }
 
-  const splitSession = (id: number): void => {
-    if (splitPair !== null) return
-    const source = sessions.find(session => session.id === id)
-    const rightId = allocateId()
+  const splitUnit = (group: number[]): void => {
+    if (group.length >= 6) return
+    const focused = activeId !== null && group.includes(activeId)
+      ? sessions.find(session => session.id === activeId)
+      : sessions.find(session => session.id === group[0])
+    const id = allocateId()
     setSessions(previous => [...previous, {
-      id: rightId,
+      id,
       sessionId: newSessionId(),
-      name: `zsh ${rightId}`,
-      cwd: source?.cwd,
+      name: focused?.name ?? `zsh ${id}`,
+      cwd: focused?.cwd,
       restart: 0,
     }])
-    setStatuses(previous => ({ ...previous, [rightId]: 'Starting zsh...' }))
-    setSplitPair({ leftId: id, rightId })
+    setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
+    setGroups(previous => previous.map(candidate => candidate === group ? [...candidate, id] : candidate))
     setActiveId(id)
   }
 
-  const joinTerminals = (): void => {
-    setSplitPair(null)
+  const joinUnit = (group: number[]): void => {
+    if (group.length <= 1) return
+    setGroups(previous => previous.flatMap(candidate => candidate === group ? group.map(id => [id]) : [candidate]))
+  }
+
+  const focusUnit = (group: number[]): void => {
+    if (group.includes(activeId ?? -1)) return
+    const first = group[0]
+    if (first !== undefined) setActiveId(first)
   }
 
   const startSplitResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return
+    const activeGroup = activeId === null ? undefined : groups.find(group => group.includes(activeId))
+    if (activeGroup === undefined || activeGroup.length !== 2) return
     event.preventDefault()
     splitResizeCleanupRef.current?.()
     const stage = stageRef.current
@@ -461,11 +479,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     window.addEventListener('pointercancel', finish)
   }
 
-  const startSessionDrag = (event: ReactPointerEvent<HTMLDivElement>, id: number): void => {
+  const startSessionDrag = (event: ReactPointerEvent<HTMLDivElement>, unitKey: number): void => {
     if (event.button !== 0) return
     const target = event.target
     if (target instanceof Element && (target.closest(`.${css.sessionClose}`) || target.closest(`.${css.sessionEditor}`))) return
-    const index = sessions.findIndex(session => session.id === id)
+    const index = groups.findIndex(group => group[0] === unitKey)
     if (index < 0) return
     const rail = railRef.current
     if (rail === null) return
@@ -477,12 +495,12 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     if (firstRow === undefined) return
     const stride = rows.length > 1 ? rows[1].offsetTop - rows[0].offsetTop : 28
     const listTop = rail.getBoundingClientRect().top + firstRow.offsetTop
-    const count = sessions.length
+    const count = groups.length
     const previousUserSelect = document.body.style.userSelect
     document.body.style.userSelect = 'none'
     rail.dataset.dragging = 'true'
     setDragMetrics({ top: firstRow.offsetTop, stride, source: index })
-    setDragId(id)
+    setDragId(unitKey)
     const computeInsertIndex = (pointerY: number): number =>
       Math.max(0, Math.min(count, Math.round((pointerY - listTop) / stride)))
     const applyInsertIndex = (next: number): void => {
@@ -510,7 +528,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
       if (dropIndex !== null) {
         const targetIndex = dropIndex > index ? dropIndex - 1 : dropIndex
         if (targetIndex !== index) {
-          setSessions(previous => {
+          setGroups(previous => {
             const next = previous.slice()
             const [item] = next.splice(index, 1)
             next.splice(targetIndex, 0, item)
@@ -525,16 +543,20 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     window.addEventListener('pointercancel', finish)
   }
 
-  const openContextMenu = (event: ReactMouseEvent, id: number): void => {
+  const openContextMenu = (event: ReactMouseEvent, unitKey: number): void => {
     event.preventDefault()
-    setActiveId(id)
+    const group = groups.find(candidate => candidate[0] === unitKey)
+    if (group !== undefined) focusUnit(group)
     // Keep the menu fully inside the viewport; stick to the page edge when it
-    // would overflow. menuHeight must match three 26px items + padding/border.
+    // would overflow. Height tracks the item count (26px per item + padding).
     const menuWidth = 140
-    const menuHeight = 88
+    const itemCount = 2
+      + (group !== undefined && group.length < 6 ? 1 : 0)
+      + (group !== undefined && group.length > 1 ? 1 : 0)
+    const menuHeight = itemCount * 26 + 10
     const margin = 6
     setContextMenu({
-      id,
+      id: unitKey,
       kind: 'session',
       canCopy: false,
       left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
@@ -557,16 +579,16 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     })
   }, [])
 
-  const beginRename = (id: number): void => {
-    const session = sessions.find(candidate => candidate.id === id)
+  const beginRename = (unitKey: number): void => {
+    const session = sessions.find(candidate => candidate.id === unitKey)
     if (session === undefined) return
     renameCancelledRef.current = false
     setRenameDraft(session.name)
-    setEditingId(id)
+    setEditingId(unitKey)
     setContextMenu(null)
   }
 
-  const commitRename = (id: number): void => {
+  const commitRename = (unitKey: number): void => {
     if (renameCancelledRef.current) {
       renameCancelledRef.current = false
       setEditingId(null)
@@ -574,7 +596,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     }
     const name = renameDraft.trim()
     if (name !== '') {
-      setSessions(previous => previous.map(session => session.id === id ? { ...session, name } : session))
+      const group = groups.find(candidate => candidate[0] === unitKey)
+      if (group !== undefined) {
+        const ids = new Set(group)
+        setSessions(previous => previous.map(session => ids.has(session.id) ? { ...session, name } : session))
+      }
     }
     setEditingId(null)
   }
@@ -703,11 +729,16 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const activeStatus = activeId === null ? '' : statuses[activeId] ?? ''
 
-  const splitLeft = splitPair === null ? undefined : sessions.find(session => session.id === splitPair.leftId)
-  const splitRight = splitPair === null ? undefined : sessions.find(session => session.id === splitPair.rightId)
-  const splitView = splitPair !== null && splitLeft !== undefined && splitRight !== undefined
-    ? { left: splitLeft, right: splitRight }
-    : null
+  const activeGroup = activeId === null ? undefined : groups.find(group => group.includes(activeId))
+  const activeGroupMembers = activeGroup === undefined
+    ? []
+    : activeGroup.flatMap(id => {
+      const session = sessions.find(candidate => candidate.id === id)
+      return session === undefined ? [] : [session]
+    })
+  const menuGroup = contextMenu !== null && contextMenu.kind === 'session'
+    ? groups.find(group => group[0] === contextMenu.id)
+    : undefined
 
   const openSearch = useCallback((id: number): void => {
     setActiveId(id)
@@ -841,55 +872,53 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             persistState(snapshot.open, activeId, sessions)
           }}
         />
-        <div ref={stageRef} className={css.terminalStage} data-split={splitView !== null ? 'true' : undefined}>
-          {splitView !== null && splitPair !== null ? (
-            <>
-              <div
-                className={css.splitPane}
-                data-focused={activeId === splitPair.leftId ? 'true' : undefined}
-                onPointerDownCapture={() => { setActiveId(splitPair.leftId) }}
-              >
-                <TerminalSession
-                  key={`${splitView.left.id}:${splitView.left.restart}`}
-                  session={splitView.left}
-                  visible={snapshot.open}
-                  focused={snapshot.open && activeId === splitPair.leftId}
-                  onStatus={onStatus}
-                  onActions={onActions}
-                  onFindRequest={openSearch}
-                  onTerminalMenu={openTerminalMenu}
-                />
-              </div>
-              <div
-                className={css.splitDivider}
-                role="separator"
-                aria-label="Resize split terminals"
-                aria-orientation="vertical"
-                onPointerDown={startSplitResize}
-                onDoubleClick={() => {
-                  stageRef.current?.style.removeProperty('--dsh-terminal-split-ratio')
-                  persistState(snapshot.open, activeId, sessions)
-                }}
-              />
-              <div
-                className={css.splitPane}
-                data-focused={activeId === splitPair.rightId ? 'true' : undefined}
-                onPointerDownCapture={() => { setActiveId(splitPair.rightId) }}
-              >
-                <TerminalSession
-                  key={`${splitView.right.id}:${splitView.right.restart}`}
-                  session={splitView.right}
-                  visible={snapshot.open}
-                  focused={snapshot.open && activeId === splitPair.rightId}
-                  onStatus={onStatus}
-                  onActions={onActions}
-                  onFindRequest={openSearch}
-                  onTerminalMenu={openTerminalMenu}
-                />
-              </div>
-            </>
-          ) : (
-            sessions.map(session => (
+        <div ref={stageRef} className={css.terminalStage}>
+          {activeGroup !== undefined && activeGroupMembers.length > 1 && (
+            <div
+              className={css.splitGrid}
+              style={{ gridTemplateColumns: activeGroupMembers.length === 2
+                ? 'var(--dsh-terminal-split-ratio, 50%) 7px minmax(0, 1fr)'
+                : Array.from({ length: activeGroupMembers.length }, () => 'minmax(0, 1fr)').join(' 7px ') }}
+            >
+              {activeGroupMembers.map((member, index) => (
+                <Fragment key={member.id}>
+                  {index > 0 && (
+                    <div
+                      className={css.splitDivider}
+                      data-static={activeGroupMembers.length > 2 ? 'true' : undefined}
+                      role="separator"
+                      aria-label="Resize split terminals"
+                      aria-orientation="vertical"
+                      onPointerDown={startSplitResize}
+                      onDoubleClick={() => {
+                        stageRef.current?.style.removeProperty('--dsh-terminal-split-ratio')
+                        persistState(snapshot.open, activeId, sessions)
+                      }}
+                    />
+                  )}
+                  <div
+                    className={css.splitPane}
+                    data-focused={activeId === member.id ? 'true' : undefined}
+                    onPointerDownCapture={() => { setActiveId(member.id) }}
+                  >
+                    <TerminalSession
+                      key={`${member.id}:${member.restart}`}
+                      session={member}
+                      visible={snapshot.open}
+                      focused={snapshot.open && activeId === member.id}
+                      onStatus={onStatus}
+                      onActions={onActions}
+                      onFindRequest={openSearch}
+                      onTerminalMenu={openTerminalMenu}
+                    />
+                  </div>
+                </Fragment>
+              ))}
+            </div>
+          )}
+          {sessions.map(session => {
+            if (activeGroup !== undefined && activeGroupMembers.length > 1 && activeGroup.includes(session.id)) return null
+            return (
               <TerminalSession
                 key={`${session.id}:${session.restart}`}
                 session={session}
@@ -900,28 +929,31 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
                 onFindRequest={openSearch}
                 onTerminalMenu={openTerminalMenu}
               />
-            ))
-          )}
+            )
+          })}
         </div>
         <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }}>
-          {sessions.map(session => (
-            <div
-              key={session.id}
-              className={css.sessionRow}
-              data-active={session.id === activeId ? 'true' : undefined}
-              data-dragging={dragId === session.id ? 'true' : undefined}
-              onContextMenu={event => { openContextMenu(event, session.id) }}
-              onPointerDown={event => { startSessionDrag(event, session.id) }}
-            >
-              {editingId === session.id
-                ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${session.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, session.id) }} onBlur={() => { commitRename(session.id) }} /></div>
-                : <button type="button" className={css.sessionSelect} onClick={() => {
-                  setActiveId(session.id)
-                  if (splitPair !== null && splitPair.leftId !== session.id && splitPair.rightId !== session.id) setSplitPair(null)
-                }} title={statuses[session.id]}><TerminalIcon /><span>{session.name}</span></button>}
-              <button type="button" className={css.sessionClose} aria-label={`Close ${session.name}`} title={`Close ${session.name}`} onClick={() => { closeSession(session.id) }}>×</button>
-            </div>
-          ))}
+          {groups.map(group => {
+            const member = sessions.find(session => session.id === group[0])
+            if (member === undefined) return null
+            const unitKey = member.id
+            const groupActive = group.includes(activeId ?? -1)
+            return (
+              <div
+                key={unitKey}
+                className={css.sessionRow}
+                data-active={groupActive ? 'true' : undefined}
+                data-dragging={dragId === unitKey ? 'true' : undefined}
+                onContextMenu={event => { openContextMenu(event, unitKey) }}
+                onPointerDown={event => { startSessionDrag(event, unitKey) }}
+              >
+                {editingId === unitKey
+                  ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${member.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, unitKey) }} onBlur={() => { commitRename(unitKey) }} /></div>
+                  : <button type="button" className={css.sessionSelect} onClick={() => { focusUnit(group) }} title={groupActive && activeId !== null ? statuses[activeId] : statuses[member.id]}><TerminalIcon /><span>{member.name}</span>{group.length > 1 && <span className={css.unitCount}>{group.length}</span>}</button>}
+                <button type="button" className={css.sessionClose} aria-label={`Close ${member.name}`} title={`Close ${member.name}`} onClick={() => { closeUnit(group) }}>×</button>
+              </div>
+            )
+          })}
           {dragIndicatorTop !== null && (
             <div className={css.dragIndicator} style={{ top: dragIndicatorTop }} />
           )}
@@ -930,10 +962,17 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
               {contextMenu.kind === 'session'
                 ? <>
                   <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
-                  <button type="button" role="menuitem" onClick={() => { closeSession(contextMenu.id); setContextMenu(null) }}>Close</button>
-                  {splitPair === null
-                    ? <button type="button" role="menuitem" onClick={() => { splitSession(contextMenu.id); setContextMenu(null) }}>Split Terminal</button>
-                    : <button type="button" role="menuitem" onClick={() => { joinTerminals(); setContextMenu(null) }}>Join Terminals</button>}
+                  <button type="button" role="menuitem" onClick={() => {
+                    const group = groups.find(candidate => candidate[0] === contextMenu.id)
+                    if (group !== undefined) closeUnit(group)
+                    setContextMenu(null)
+                  }}>Close</button>
+                  {menuGroup !== undefined && menuGroup.length < 6 && (
+                    <button type="button" role="menuitem" onClick={() => { splitUnit(menuGroup); setContextMenu(null) }}>Split Terminal</button>
+                  )}
+                  {menuGroup !== undefined && menuGroup.length > 1 && (
+                    <button type="button" role="menuitem" onClick={() => { joinUnit(menuGroup); setContextMenu(null) }}>Join Terminals</button>
+                  )}
                 </>
                 : <>
                   <button type="button" role="menuitem" disabled={!contextMenu.canCopy} onClick={() => { actionsRef.current.get(contextMenu.id)?.copy(); setContextMenu(null) }}>Copy</button>

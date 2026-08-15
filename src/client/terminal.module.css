@@ -214,9 +214,10 @@
   overflow: hidden;
 }
 
-.terminalStage[data-split='true'] {
+.splitGrid {
+  position: absolute;
+  inset: 0;
   display: grid;
-  grid-template-columns: var(--dsh-terminal-split-ratio, 50%) 7px minmax(0, 1fr);
 }
 
 .splitPane {
@@ -241,6 +242,17 @@
 }
 
 .splitDivider:hover { background: #22335c; }
+
+.splitDivider[data-static='true'] {
+  cursor: default;
+}
+
+.unitCount {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: #8fa0c0;
+  font-size: 11px;
+}
 
 .terminalView {
   position: absolute;
