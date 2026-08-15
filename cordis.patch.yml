@@ -1,0 +1,3 @@
+- insert:
+    - id: local-terminal
+      name: '@dsh-external/dsh-local-terminal'

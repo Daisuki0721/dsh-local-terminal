@@ -1,0 +1,316 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+  color: var(--dsw-alias-label-secondary, #d7deeb);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.trigger:hover,
+.trigger[data-active='true'] {
+  color: var(--dsw-alias-label-primary, #fff);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.09));
+  border-color: var(--dsw-alias-border-l2, rgba(147, 168, 197, 0.28));
+}
+
+.heroHost {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+}
+
+.mount {
+  flex: 0 0 auto;
+  width: 100%;
+  height: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: height 160ms ease, visibility 0s linear 160ms;
+}
+
+.mount[data-open='true'] {
+  height: var(--dsh-terminal-height, clamp(270px, 36vh, 420px));
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.mount[data-resizing='true'] { transition: none; }
+
+.panel {
+  position: relative;
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: #e8edf8;
+  background: #081020;
+  border-top: 1px solid var(--dsw-alias-border-l2, rgba(147, 168, 197, 0.38));
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.22);
+}
+
+.resizeHandle {
+  position: absolute;
+  z-index: 12;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 7px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.resizeHandle::after {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  width: 52px;
+  height: 2px;
+  content: '';
+  background: rgba(180, 199, 229, 0);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  transition: background-color 100ms ease;
+}
+
+.resizeHandle:hover::after,
+.resizeHandle:focus-visible::after { background: rgba(180, 199, 229, 0.78); }
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0 12px 0 16px;
+  background: #18243f;
+  border-bottom: 1px solid rgba(147, 168, 197, 0.28);
+}
+
+.panelTitle,
+.panelActions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.cwd {
+  max-width: min(620px, 48vw);
+  overflow: hidden;
+  color: #9fadc5;
+  font-size: 12px;
+  font-family: Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerButton,
+.iconButton,
+.closeButton {
+  height: 28px;
+  padding: 0 10px;
+  color: #d7deeb;
+  font: inherit;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(147, 168, 197, 0.24);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.headerButton:hover,
+.iconButton:hover,
+.closeButton:hover { background: rgba(255, 255, 255, 0.12); }
+
+.iconButton,
+.closeButton {
+  width: 28px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.closeButton {
+  font-size: 20px;
+}
+
+.panelBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  min-width: 0;
+  min-height: 0;
+  background: #081020;
+}
+
+.terminalStage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminalView {
+  position: absolute;
+  inset: 0;
+  display: none;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminalView[data-active='true'] { display: block; }
+
+.terminalHost {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 6px 8px 12px;
+  box-sizing: border-box;
+  background: #081020;
+}
+
+.sessionRail {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #111827;
+  border-left: 1px solid rgba(147, 168, 197, 0.24);
+}
+
+.sessionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  min-width: 0;
+  height: 34px;
+  margin-bottom: 4px;
+  color: #cbd4e5;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+}
+
+.sessionRow:hover { background: rgba(255, 255, 255, 0.06); }
+
+.sessionRow[data-active='true'] {
+  color: #fff;
+  background: rgba(102, 137, 200, 0.24);
+  border-left-color: #6f9ee8;
+}
+
+.sessionSelect,
+.sessionEditor,
+.sessionClose {
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.sessionSelect,
+.sessionEditor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 0 4px 0 8px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.sessionEditor input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 5px;
+  color: #fff;
+  font: inherit;
+  background: rgba(8, 16, 32, 0.9);
+  border: 1px solid #6f9ee8;
+  border-radius: 3px;
+  outline: none;
+}
+
+.sessionSelect span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionClose {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.sessionRow:hover .sessionClose,
+.sessionRow[data-active='true'] .sessionClose { opacity: 0.8; }
+
+.sessionClose:hover { opacity: 1; }
+
+.contextMenu {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  width: 140px;
+  padding: 4px;
+  overflow: hidden;
+  background: #1d2942;
+  border: 1px solid rgba(170, 190, 222, 0.32);
+  border-radius: 7px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.46);
+}
+
+.contextMenu button {
+  height: 32px;
+  padding: 0 10px;
+  color: #e8edf8;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.contextMenu button:hover,
+.contextMenu button:focus-visible {
+  background: rgba(111, 158, 232, 0.24);
+  outline: none;
+}
+
+@media (max-width: 720px) {
+  .mount[data-open='true'] { height: min(42vh, 360px); }
+  .panelBody { grid-template-columns: minmax(0, 1fr) 116px; }
+  .cwd { display: none; }
+  .headerButton { display: none; }
+  .trigger span { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mount,
+  .trigger { transition: none; }
+}
