@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -168,19 +169,37 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   const [statuses, setStatuses] = useState<Record<number, string>>({})
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [dragId, setDragId] = useState<number | null>(null)
+  const [dragMetrics, setDragMetrics] = useState<{ top: number; stride: number; source: number } | null>(null)
+  const [insertIndex, setInsertIndex] = useState<number | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const nextIdRef = useRef(1)
+  const freedIdsRef = useRef<number[]>([])
   const actionsRef = useRef(new Map<number, TerminalActions>())
   const panelRef = useRef<HTMLElement | null>(null)
   const railRef = useRef<HTMLElement | null>(null)
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
+  const railResizeCleanupRef = useRef<(() => void) | null>(null)
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+  const insertIndexRef = useRef<number | null>(null)
   const renameCancelledRef = useRef(false)
 
   useEffect(() => { ensureXtermCss() }, [])
 
   const addSession = useCallback((cwd?: string) => {
-    const id = nextIdRef.current++
+    const freed = freedIdsRef.current
+    let id: number
+    if (freed.length !== 0) {
+      let index = 0
+      for (let i = 1; i < freed.length; i++) {
+        if (freed[i] < freed[index]) index = i
+      }
+      id = freed[index]
+      freed.splice(index, 1)
+    } else {
+      id = nextIdRef.current++
+    }
     setSessions(previous => [...previous, { id, name: `zsh ${id}`, cwd, restart: 0 }])
     setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
     setActiveId(id)
@@ -200,6 +219,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   }, [])
 
   const closeSession = (id: number): void => {
+    const freed = freedIdsRef.current
+    if (!freed.includes(id)) freed.push(id)
     const index = sessions.findIndex(session => session.id === id)
     const remaining = sessions.filter(session => session.id !== id)
     setSessions(remaining)
@@ -212,18 +233,82 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     if (remaining.length === 0) controller.hide()
   }
 
-  const openContextMenu = (event: ReactMouseEvent, id: number): void => {
-    event.preventDefault()
+  const startSessionDrag = (event: ReactPointerEvent<HTMLDivElement>, id: number): void => {
+    if (event.button !== 0) return
+    const target = event.target
+    if (target instanceof Element && (target.closest(`.${css.sessionClose}`) || target.closest(`.${css.sessionEditor}`))) return
+    const index = sessions.findIndex(session => session.id === id)
+    if (index < 0) return
     const rail = railRef.current
     if (rail === null) return
-    const rect = rail.getBoundingClientRect()
-    const menuWidth = 140
-    const menuHeight = 76
+    event.preventDefault()
+    dragCleanupRef.current?.()
+    setContextMenu(null)
+    const rows = Array.from(rail.querySelectorAll<HTMLElement>(`.${css.sessionRow}`))
+    const firstRow = rows[0]
+    if (firstRow === undefined) return
+    const stride = rows.length > 1 ? rows[1].offsetTop - rows[0].offsetTop : 28
+    const listTop = rail.getBoundingClientRect().top + firstRow.offsetTop
+    const count = sessions.length
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+    rail.dataset.dragging = 'true'
+    setDragMetrics({ top: firstRow.offsetTop, stride, source: index })
+    setDragId(id)
+    const computeInsertIndex = (pointerY: number): number =>
+      Math.max(0, Math.min(count, Math.round((pointerY - listTop) / stride)))
+    const applyInsertIndex = (next: number): void => {
+      if (insertIndexRef.current === next) return
+      insertIndexRef.current = next
+      setInsertIndex(next)
+    }
+    applyInsertIndex(computeInsertIndex(event.clientY))
+    const move = (moveEvent: PointerEvent): void => { applyInsertIndex(computeInsertIndex(moveEvent.clientY)) }
+    let finished = false
+    const finish = (): void => {
+      if (finished) return
+      finished = true
+      delete rail.dataset.dragging
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      const dropIndex = insertIndexRef.current
+      insertIndexRef.current = null
+      dragCleanupRef.current = null
+      setDragId(null)
+      setInsertIndex(null)
+      setDragMetrics(null)
+      if (dropIndex !== null) {
+        const targetIndex = dropIndex > index ? dropIndex - 1 : dropIndex
+        if (targetIndex !== index) {
+          setSessions(previous => {
+            const next = previous.slice()
+            const [item] = next.splice(index, 1)
+            next.splice(targetIndex, 0, item)
+            return next
+          })
+        }
+      }
+    }
+    dragCleanupRef.current = finish
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
+
+  const openContextMenu = (event: ReactMouseEvent, id: number): void => {
+    event.preventDefault()
     setActiveId(id)
+    // Keep the menu fully inside the viewport; stick to the page edge when it
+    // would overflow. menuHeight must match the two 26px items + padding/border.
+    const menuWidth = 140
+    const menuHeight = 64
+    const margin = 6
     setContextMenu({
       id,
-      left: Math.max(4, Math.min(event.clientX - rect.left, rect.width - menuWidth - 4)),
-      top: Math.max(4, Math.min(event.clientY - rect.top, rect.height - menuHeight - 4)),
+      left: Math.max(margin, Math.min(event.clientX, window.innerWidth - menuWidth - margin)),
+      top: Math.max(margin, Math.min(event.clientY, window.innerHeight - menuHeight - margin)),
     })
   }
 
@@ -310,6 +395,55 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     setPanelHeight(mount.getBoundingClientRect().height + delta)
   }
 
+  const setRailWidth = (width: number): void => {
+    const mount = panelRef.current?.parentElement
+    if (!(mount instanceof HTMLElement)) return
+    const maximum = Math.round(window.innerWidth * 0.5)
+    mount.style.setProperty('--dsh-terminal-rail-width', `${Math.min(maximum, Math.max(116, Math.round(width)))}px`)
+  }
+
+  const startRailResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    railResizeCleanupRef.current?.()
+    const mount = panelRef.current?.parentElement
+    const rail = railRef.current
+    if (!(mount instanceof HTMLElement) || rail === null) return
+    const startX = event.clientX
+    const startWidth = rail.getBoundingClientRect().width
+    const previousUserSelect = document.body.style.userSelect
+    mount.dataset.resizing = 'true'
+    document.body.style.userSelect = 'none'
+    const move = (moveEvent: PointerEvent): void => {
+      setRailWidth(startWidth + startX - moveEvent.clientX)
+    }
+    let finished = false
+    const finish = (): void => {
+      if (finished) return
+      finished = true
+      delete mount.dataset.resizing
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      window.dispatchEvent(new Event('resize'))
+      railResizeCleanupRef.current = null
+    }
+    railResizeCleanupRef.current = finish
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
+
+  const resizeRailWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const rail = railRef.current
+    if (rail === null) return
+    const delta = event.key === 'ArrowRight' ? -24 : 24
+    setRailWidth(rail.getBoundingClientRect().width + delta)
+  }
+
   const restartActive = (): void => {
     if (activeId === null) return
     setStatuses(previous => ({ ...previous, [activeId]: 'Restarting zsh...' }))
@@ -319,6 +453,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   }
 
   const activeStatus = activeId === null ? '' : statuses[activeId] ?? ''
+
+  const dragIndicatorTop = dragMetrics !== null && insertIndex !== null
+    && insertIndex !== dragMetrics.source && insertIndex !== dragMetrics.source + 1
+    ? dragMetrics.top + insertIndex * dragMetrics.stride - 2
+    : null
 
   useEffect(() => {
     if (contextMenu === null) return
@@ -330,7 +469,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     return () => { window.removeEventListener('mousedown', close) }
   }, [contextMenu])
 
-  useEffect(() => () => { resizeCleanupRef.current?.() }, [])
+  useEffect(() => () => {
+    resizeCleanupRef.current?.()
+    railResizeCleanupRef.current?.()
+    dragCleanupRef.current?.()
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -369,6 +512,16 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
         </div>
       </header>
       <div className={css.panelBody}>
+        <div
+          className={css.railDivider}
+          role="separator"
+          aria-label="Resize terminal session list"
+          aria-orientation="vertical"
+          tabIndex={0}
+          onPointerDown={startRailResize}
+          onKeyDown={resizeRailWithKeyboard}
+          onDoubleClick={() => { panelRef.current?.parentElement?.style.removeProperty('--dsh-terminal-rail-width') }}
+        />
         <div className={css.terminalStage}>
           {sessions.map(session => (
             <TerminalSession
@@ -380,20 +533,31 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
             />
           ))}
         </div>
-        <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null) }}>
+        <aside ref={railRef} className={css.sessionRail} aria-label="Terminal sessions" onScroll={() => { setContextMenu(null); dragCleanupRef.current?.() }}>
           {sessions.map(session => (
-            <div key={session.id} className={css.sessionRow} data-active={session.id === activeId ? 'true' : undefined} onContextMenu={event => { openContextMenu(event, session.id) }}>
+            <div
+              key={session.id}
+              className={css.sessionRow}
+              data-active={session.id === activeId ? 'true' : undefined}
+              data-dragging={dragId === session.id ? 'true' : undefined}
+              onContextMenu={event => { openContextMenu(event, session.id) }}
+              onPointerDown={event => { startSessionDrag(event, session.id) }}
+            >
               {editingId === session.id
                 ? <div className={css.sessionEditor}><TerminalIcon /><input autoFocus value={renameDraft} aria-label={`Rename ${session.name}`} onChange={event => { setRenameDraft(event.target.value) }} onKeyDown={event => { handleRenameKey(event, session.id) }} onBlur={() => { commitRename(session.id) }} /></div>
                 : <button type="button" className={css.sessionSelect} onClick={() => { setActiveId(session.id) }} title={statuses[session.id]}><TerminalIcon /><span>{session.name}</span></button>}
               <button type="button" className={css.sessionClose} aria-label={`Close ${session.name}`} title={`Close ${session.name}`} onClick={() => { closeSession(session.id) }}>×</button>
             </div>
           ))}
-          {contextMenu !== null && (
+          {dragIndicatorTop !== null && (
+            <div className={css.dragIndicator} style={{ top: dragIndicatorTop }} />
+          )}
+          {contextMenu !== null && createPortal(
             <div ref={contextMenuRef} className={css.contextMenu} role="menu" style={{ left: contextMenu.left, top: contextMenu.top }}>
               <button type="button" role="menuitem" onClick={() => { beginRename(contextMenu.id) }}>Rename</button>
               <button type="button" role="menuitem" onClick={() => { closeSession(contextMenu.id); setContextMenu(null) }}>Close</button>
-            </div>
+            </div>,
+            document.body,
           )}
         </aside>
       </div>
