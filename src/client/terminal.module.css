@@ -480,56 +480,33 @@
   cursor: default;
 }
 
-.statusHost { display: contents; }
-
-.statusHost[data-fallback='true'] {
-  display: block;
-  position: fixed;
-  left: 10px;
-  bottom: 8px;
-  z-index: 900;
-}
-
-.statusEntry {
+.pickerEntry {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 8px;
-  color: #9fadc5;
-  font: inherit;
-  font-size: 11px;
-  white-space: nowrap;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: color 120ms ease, background-color 120ms ease;
-}
-
-.statusEntry:hover {
-  color: #e8edf8;
-  background: rgba(255, 255, 255, 0.07);
-}
-
-.statusHost[data-fallback='true'] .statusEntry {
-  height: 26px;
-  padding: 0 10px;
+  gap: 5px;
+  height: 28px;
+  padding: 0 9px;
   color: #d7deeb;
+  font: inherit;
   font-size: 12px;
-  background: #18243f;
-  border-color: rgba(147, 168, 197, 0.3);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(147, 168, 197, 0.24);
+  border-radius: 7px;
+  cursor: pointer;
 }
 
-.statusHost[data-fallback='true'] .statusEntry:hover {
-  color: #fff;
-  background: #22335c;
-}
+.pickerEntry:hover { background: rgba(255, 255, 255, 0.12); }
 
-.statusEntry svg {
+.pickerEntry svg {
   width: 13px;
   height: 13px;
+}
+
+.pickerCaret {
+  color: #9fadc5;
+  font-size: 9px;
+  line-height: 1;
 }
 
 .contextMenu button:disabled:hover,
