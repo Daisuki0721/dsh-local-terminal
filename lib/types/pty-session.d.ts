@@ -29,6 +29,11 @@ export declare function resolveTerminalCwd(candidate?: string): string;
  * Repair only that package-owned helper before the native fork call.
  */
 export declare function ensureSpawnHelperExecutable(): void;
+export interface ResolvedShell {
+    shell: string;
+    args: string[];
+}
+export declare function resolveShell(): ResolvedShell;
 export declare function openLocalPty(options: {
     cwd?: string;
     cols: number;

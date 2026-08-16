@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import * as pty from 'node-pty'
 
 const require = createRequire(import.meta.url)
@@ -57,12 +57,69 @@ export function ensureSpawnHelperExecutable(): void {
   }
 }
 
+export interface ResolvedShell {
+  shell: string
+  args: string[]
+}
+
+/**
+ * Locate an executable on PATH. On Windows the candidate name is tried with
+ * each PATHEXT extension so `findExecutable('pwsh')` resolves `pwsh.EXE`; on
+ * POSIX the name is used verbatim.
+ */
+function findExecutable(name: string): string | undefined {
+  if (isAbsolute(name) && existsSync(name)) return name
+  const pathEnv = process.env.PATH ?? ''
+  const extensions = process.platform === 'win32'
+    ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+    : ['']
+  for (const dir of pathEnv.split(delimiter)) {
+    if (dir === '') continue
+    for (const ext of extensions) {
+      const candidate = join(dir, name + ext)
+      try {
+        if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+      } catch {
+        // Keep searching PATH.
+      }
+    }
+  }
+  return undefined
+}
+
+function resolveWindowsShell(): ResolvedShell {
+  const pwsh = findExecutable('pwsh')
+  if (pwsh !== undefined) return { shell: pwsh, args: ['-NoLogo'] }
+  const powershell = findExecutable('powershell')
+  if (powershell !== undefined) return { shell: powershell, args: ['-NoLogo'] }
+  const comSpec = process.env.ComSpec
+  if (comSpec !== undefined && comSpec !== '') return { shell: comSpec, args: [] }
+  const cmd = findExecutable('cmd')
+  if (cmd !== undefined) return { shell: cmd, args: [] }
+  throw new Error('No usable Windows shell found (tried pwsh, powershell, and cmd).')
+}
+
+function resolvePosixShell(): ResolvedShell {
+  const configured = process.env.SHELL
+  if (configured !== undefined && configured !== '' && existsSync(configured)) {
+    return { shell: configured, args: ['-l'] }
+  }
+  for (const candidate of ['/bin/zsh', '/usr/bin/zsh', '/bin/bash', '/usr/bin/bash', '/bin/sh']) {
+    if (existsSync(candidate)) return { shell: candidate, args: ['-l'] }
+  }
+  throw new Error('No usable POSIX shell found (tried $SHELL, /bin/zsh, /bin/bash, and /bin/sh).')
+}
+
+export function resolveShell(): ResolvedShell {
+  return process.platform === 'win32' ? resolveWindowsShell() : resolvePosixShell()
+}
+
 export function openLocalPty(options: { cwd?: string; cols: number; rows: number }): LocalPtySession {
   ensureSpawnHelperExecutable()
-  const shell = '/bin/zsh'
+  const { shell, args } = resolveShell()
   const cwd = resolveTerminalCwd(options.cwd)
   const size = clampTerminalSize(options.cols, options.rows)
-  const child = pty.spawn(shell, ['-l'], {
+  const child = pty.spawn(shell, args, {
     name: 'xterm-256color',
     cols: size.cols,
     rows: size.rows,

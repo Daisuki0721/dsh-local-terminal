@@ -1,8 +1,8 @@
 # dsh-local-terminal
 
-为 DeepSeek Harness Web UI 提供 VS Code 风格的本机 zsh 终端。
+为 DeepSeek Harness Web UI 提供 VS Code 风格的本机终端。
 
-A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
+A VS Code-style local terminal plugin for the DeepSeek Harness web UI.
 
 ## 功能
 
@@ -10,7 +10,7 @@ A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
 - 点击 `Terminal` 展开或收起面板，关闭按钮也可收起；`Ctrl+`` 快速开关。
 - 面板顶边可拖动调整高度，双击恢复默认高度。
 - 终端与终端列表之间的竖直分割线可拖动调整宽度，双击恢复默认宽度。
-- 支持多个相互独立的 zsh 会话。
+- 支持多个相互独立的 shell 会话。
 - 终端列表支持切换、关闭，以及右键重命名或关闭。
 - 终端列表标签页支持上下拖动排序（白色指示条预览插入位置）。
 - 面板收起后保留 PTY、输出、滚动位置和进程状态。
@@ -19,21 +19,23 @@ A VS Code-style local zsh terminal plugin for the DeepSeek Harness web UI.
 - `Cmd+V` / `Ctrl+Shift+V` 粘贴；`Ctrl+Shift+F` 或 `Find` 按钮在终端内搜索。
 - `Cmd+A` 全选、`Cmd+K` 清屏（均提供 `Ctrl+Shift+` 别名，不劫持 shell 的 `Ctrl+A`/`Ctrl+K`）。
 - 终端区域右键菜单：Copy / Copy as HTML / Paste / Select All / Clear / Restart，视口内自动避让。
-- 标签右键 `Split Terminal` 竖向分屏，同一组最多 6 个窗格，全部共享组名（如 `zsh 1`）；侧边栏每组显示为一行并带数量角标。
+- 标签右键 `Split Terminal` 竖向分屏，同一组最多 6 个窗格，全部共享组名（如 `Terminal 1`）；侧边栏每组显示为一行并带数量角标。
 - 双窗格分割线可拖动（双击复位）；3 个及以上窗格等宽排列。点击窗格切换焦点（蓝色描边提示）。
 - `Join Terminals` 把组内窗格拆回独立标签；关闭组会关闭组内全部终端。
 - 分屏组、窗格顺序与分割比例随会话状态一起持久化。
 - 右键终端列表空白处或空舞台：`New Terminal` 新建会话、`Move Tabs Left/Right` 切换标签栏位置、`Hide Tabs` 隐藏标签栏；布局偏好持久化。
-- 面板标题行提供 VS Code 风格的终端选择器（`zsh 1 ▾`，与 Find/Clear/Restart 并列）：点击弹出下拉，列出全部终端组（✓ 当前组）并可直接切换，底部提供 `Show Tabs` 恢复标签栏。
+- 面板标题行提供 VS Code 风格的终端选择器（`Terminal 1 ▾`，与 Find/Clear/Restart 并列）：点击弹出下拉，列出全部终端组（✓ 当前组）并可直接切换，底部提供 `Show Tabs` 恢复标签栏。
 - 面板高度变化时通知对话视图重新布局，避免虚拟列表裁切滞后。
 - 使用 xterm.js、Unicode 11 宽度规则和 Nerd Font 回退字体。
 
 ## 环境要求
 
-- macOS。
+- macOS、Linux 或 Windows。
 - DeepSeek Harness，且已配置 `web` profile。
 - Node.js `22.19` 或更高版本。
-- 系统存在 `/bin/zsh`。
+- 可用的本机 shell：
+  - macOS / Linux：优先使用 `$SHELL`，否则回退到 `/bin/zsh`、`/bin/bash` 或 `/bin/sh`。
+  - Windows：优先 `pwsh`（PowerShell 7），否则回退到 `powershell.exe`，再回退到 `cmd.exe`。
 
 插件会启动真实的本机 shell。终端中运行的命令拥有启动 `dsh web` 的用户权限，请只在可信设备和可信 DSH 插件环境中使用。
 
@@ -66,7 +68,7 @@ dsh plugin --profile web add "$PWD"
 ## 使用
 
 1. 点击对话区顶部的 `Terminal` 打开底部面板。
-2. 点击工具栏的 `+` 创建新的 zsh 会话。
+2. 点击工具栏的 `+` 创建新的终端会话。
 3. 点击右侧终端名称切换会话。
 4. 右键终端名称进行重命名或关闭。
 5. 拖动面板上边界调整高度；双击上边界恢复默认高度。
@@ -75,7 +77,7 @@ dsh plugin --profile web add "$PWD"
 
 快捷键：`Ctrl+`` 开关面板；`Cmd+V` / `Ctrl+Shift+V` 粘贴；`Ctrl+Shift+F` 打开搜索（`Enter` 下一个、`Shift+Enter` 上一个、`Esc` 退出）；刷新页面后会话列表、命名、顺序与面板尺寸自动恢复，运行中的 shell 会在 60 秒内重连并保留输出。
 
-`Clear` 只清除当前终端的可见缓冲区；`Restart` 只重启当前 zsh 会话。
+`Clear` 只清除当前终端的可见缓冲区；`Restart` 只重启当前会话。
 
 ## 安全设计
 

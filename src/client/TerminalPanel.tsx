@@ -22,7 +22,7 @@ interface TerminalSessionModel {
 }
 
 function newSessionId(): string {
-  return `zsh-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
+  return `term-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`
 }
 
 interface TerminalActions {
@@ -208,7 +208,7 @@ function TerminalSession({
         connection.onOutput = value => { term.write(value) }
         connection.onExit = (code, error) => {
           term.options.disableStdin = true
-          onStatus(session.id, error ?? `zsh exited (${code ?? 'unknown'})`)
+          onStatus(session.id, error ?? `terminal exited (${code ?? 'unknown'})`)
         }
         const resize = new ResizeObserver(() => {
           if (!visibleRef.current) return
@@ -342,8 +342,8 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const addSession = useCallback((cwd?: string) => {
     const id = allocateId()
-    setSessions(previous => [...previous, { id, sessionId: newSessionId(), name: `zsh ${id}`, cwd, restart: 0 }])
-    setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
+    setSessions(previous => [...previous, { id, sessionId: newSessionId(), name: `Terminal ${id}`, cwd, restart: 0 }])
+    setStatuses(previous => ({ ...previous, [id]: 'Starting terminal...' }))
     setGroups(previous => [...previous, [id]])
     setActiveId(id)
   }, [])
@@ -432,11 +432,11 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
     setSessions(previous => [...previous, {
       id,
       sessionId: newSessionId(),
-      name: focused?.name ?? `zsh ${id}`,
+      name: focused?.name ?? `Terminal ${id}`,
       cwd: focused?.cwd,
       restart: 0,
     }])
-    setStatuses(previous => ({ ...previous, [id]: 'Starting zsh...' }))
+    setStatuses(previous => ({ ...previous, [id]: 'Starting terminal...' }))
     setGroups(previous => previous.map(candidate => candidate === group ? [...candidate, id] : candidate))
     setActiveId(id)
   }
@@ -781,7 +781,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
 
   const restartActive = (): void => {
     if (activeId === null) return
-    setStatuses(previous => ({ ...previous, [activeId]: 'Restarting zsh...' }))
+    setStatuses(previous => ({ ...previous, [activeId]: 'Restarting terminal...' }))
     setSessions(previous => previous.map(session => session.id === activeId
       ? { ...session, sessionId: newSessionId(), restart: session.restart + 1 }
       : session))
@@ -904,7 +904,7 @@ export function TerminalPanel({ controller }: { controller: TerminalController }
   })()
 
   return (
-    <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local zsh terminals">
+    <section ref={panelRef} className={css.panel} data-open={snapshot.open ? 'true' : undefined} data-search={searchOpen ? 'true' : undefined} aria-hidden={!snapshot.open} aria-label="Local terminals">
       <div
         className={css.resizeHandle}
         role="separator"

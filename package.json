@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-local-terminal",
-  "description": "A VS Code-style multi-session local zsh terminal embedded in the DeepSeek Harness web UI.",
+  "description": "A VS Code-style multi-session local terminal embedded in the DeepSeek Harness web UI.",
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",

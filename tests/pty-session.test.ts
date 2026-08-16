@@ -54,7 +54,7 @@ describe.skipIf(!canSpawnPty)('local terminal PTY detach/replay', () => {
       session.write('exit\r')
       const event = await new Promise<{ exitCode: number; signal?: number }>((resolve, reject) => {
         session.onExit(resolve)
-        setTimeout(() => { reject(new Error('zsh did not exit in time')) }, 8000)
+        setTimeout(() => { reject(new Error('shell did not exit in time')) }, 8000)
       })
       expect(typeof event.exitCode).toBe('number')
       expect(session.exitState?.exitCode).toBe(event.exitCode)

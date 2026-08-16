@@ -19,8 +19,8 @@ export function mountHeroTerminalEntry(controller: TerminalController): () => vo
   const button = document.createElement('button')
   button.type = 'button'
   button.className = css.trigger
-  button.title = 'Open local zsh terminal'
-  button.setAttribute('aria-label', 'Open local zsh terminal')
+  button.title = 'Open local terminal'
+  button.setAttribute('aria-label', 'Open local terminal')
   button.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="2"></rect><path d="m4.25 5.5 2.25 2-2.25 2M8.5 9.5h3"></path></svg><span>Terminal</span>'
   button.addEventListener('click', () => { controller.toggle() })
   host.append(button)

@@ -27,7 +27,7 @@ export function TerminalButton(props: TerminalButtonProps) {
       className={css.trigger}
       data-active={snapshot.open ? 'true' : undefined}
       aria-pressed={snapshot.open}
-      title="Open local zsh terminal"
+      title="Open local terminal"
       onClick={() => { props.terminalController.toggle(cwd) }}
     >
       <TerminalIcon />
